@@ -31,10 +31,25 @@ export const VideoCard = ({ videoUrl, brand, description, isActive, shouldPreloa
     const container = containerRef.current;
     if (!container) return;
 
+    // Detect iOS for special handling
+    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || 
+                  (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+
     // If shouldPreload is true, load immediately without waiting for observer
     if (shouldPreload && !videoSrc) {
       setVideoSrc(videoUrl);
       setIsLoading(true);
+      
+      // On iOS, ensure the video element gets the src immediately (no delay needed)
+      if (isIOS && videoRef.current) {
+        // Use requestAnimationFrame for immediate execution after render
+        requestAnimationFrame(() => {
+          if (videoRef.current && !videoRef.current.src) {
+            videoRef.current.src = videoUrl;
+            videoRef.current.load();
+          }
+        });
+      }
       return;
     }
 
@@ -84,11 +99,24 @@ export const VideoCard = ({ videoUrl, brand, description, isActive, shouldPreloa
     const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || 
                   (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
     
-    // Force video to load if shouldPreload is true - with safety checks
-    if (shouldPreload) {
+    // Force video to load if shouldPreload is true - optimized for speed
+    if (shouldPreload && videoSrc) {
       try {
-        if (video && video.readyState !== undefined && video.readyState === 0) {
-          video.load();
+        if (video) {
+          // Ensure src is set first (critical for loading)
+          if (video.src !== videoSrc) {
+            video.src = videoSrc;
+          }
+          
+          // On iOS or if not loaded, explicitly call load() to start loading immediately
+          if (isIOS || video.readyState === 0 || video.readyState === undefined) {
+            // Use requestAnimationFrame for immediate execution
+            requestAnimationFrame(() => {
+              if (video && videoRef.current && video.src === videoSrc) {
+                video.load();
+              }
+            });
+          }
         }
       } catch (error) {
         console.warn('Video load failed (non-critical):', error);
@@ -131,13 +159,11 @@ export const VideoCard = ({ videoUrl, brand, description, isActive, shouldPreloa
     
     const handleCanPlayThrough = () => {
       try {
-        if (video && videoRef.current) {
+        if (video && videoRef.current && !hasLoadedOnce) {
           setIsLoading(false);
           setHasError(false);
-          if (!hasLoadedOnce) {
-            setHasLoadedOnce(true);
-            onLoaded?.();
-          }
+          setHasLoadedOnce(true);
+          onLoaded?.();
         }
       } catch (error) {
         console.warn('CanPlayThrough handler error (non-critical):', error);
@@ -146,18 +172,33 @@ export const VideoCard = ({ videoUrl, brand, description, isActive, shouldPreloa
     
     const handleLoadedData = () => {
       try {
-        if (video && videoRef.current && 
-            video.readyState !== undefined && 
-            video.readyState >= 2) {
-          setIsLoading(false);
-          setHasError(false);
-          if (!hasLoadedOnce) {
+        if (video && videoRef.current && !hasLoadedOnce) {
+          // For iOS, accept readyState >= 1 (just metadata is enough to show video)
+          const minReadyState = isIOS ? 1 : 2;
+          if (video.readyState >= minReadyState) {
+            setIsLoading(false);
+            setHasError(false);
             setHasLoadedOnce(true);
             onLoaded?.();
           }
         }
       } catch (error) {
         console.warn('LoadedData handler error (non-critical):', error);
+      }
+    };
+    
+    // Also handle loadedmetadata for iOS (fires earlier) - optimized
+    const handleLoadedMetadata = () => {
+      try {
+        if (video && videoRef.current && isIOS && !hasLoadedOnce) {
+          // On iOS, metadata is enough to consider video "loaded" for UI purposes
+          setIsLoading(false);
+          setHasError(false);
+          setHasLoadedOnce(true);
+          onLoaded?.();
+        }
+      } catch (error) {
+        console.warn('LoadedMetadata handler error (non-critical):', error);
       }
     };
 
@@ -194,6 +235,7 @@ export const VideoCard = ({ videoUrl, brand, description, isActive, shouldPreloa
       video.addEventListener('error', handleError);
       if (isIOS) {
         video.addEventListener('stalled', handleStalled);
+        video.addEventListener('loadedmetadata', handleLoadedMetadata);
       }
     } catch (error) {
       console.warn('Failed to add event listeners (non-critical):', error);
@@ -207,6 +249,7 @@ export const VideoCard = ({ videoUrl, brand, description, isActive, shouldPreloa
           video.removeEventListener('error', handleError);
           if (isIOS) {
             video.removeEventListener('stalled', handleStalled);
+            video.removeEventListener('loadedmetadata', handleLoadedMetadata);
           }
         }
       } catch (error) {
@@ -227,22 +270,16 @@ export const VideoCard = ({ videoUrl, brand, description, isActive, shouldPreloa
     if (isActive) {
       hasAwardedPointRef.current = false;
       
-      // Safe video operations with error handling
-      const safeVideoOperation = (operation: () => void) => {
-        try {
-          if (video && videoSrc && video.readyState !== undefined) {
-            operation();
-          }
-        } catch (error) {
-          console.warn('Video operation failed (non-critical):', error);
+      // Safe video operations with error handling - optimized
+      try {
+        if (video && videoSrc) {
+          // Ensure video is muted for iOS autoplay
+          video.muted = true; // Always start muted on iOS
+          video.currentTime = 0;
         }
-      };
-      
-      safeVideoOperation(() => {
-        // Ensure video is muted for iOS autoplay
-        video.muted = true; // Always start muted on iOS
-        video.currentTime = 0;
-      });
+      } catch (error) {
+        console.warn('Video operation failed (non-critical):', error);
+      }
       
       const attemptPlay = async () => {
         // Check if video is still valid before proceeding
@@ -252,31 +289,33 @@ export const VideoCard = ({ videoUrl, brand, description, isActive, shouldPreloa
         }
         
         try {
-          // For iOS, wait longer and ensure video has more data loaded
-          const minReadyState = isIOS ? 3 : 2; // iOS needs more data
+          // For iOS, be less strict - just need some data loaded (readyState >= 1)
+          // iOS Safari often doesn't reach readyState 3 until user interaction
+          const minReadyState = isIOS ? 1 : 2; // iOS just needs metadata
           
           // Check if video has valid readyState
           if (video.readyState === undefined || isNaN(video.readyState)) {
-            console.warn('Video readyState invalid, waiting...');
-            // Wait a bit and try again
-            setTimeout(() => attemptPlay(), 500);
+            // Try again immediately with requestAnimationFrame
+            requestAnimationFrame(() => attemptPlay());
             return;
           }
           
+          // If we have at least metadata, try to play immediately on iOS
           if (video.readyState < minReadyState) {
             await new Promise<void>((resolve) => {
-              // Safety timeout to prevent infinite waiting
+              // Shorter timeout for faster loading
               const timeoutId = setTimeout(() => {
                 video.removeEventListener('canplay', onCanPlay);
                 video.removeEventListener('loadeddata', onLoadedData);
-                console.warn('Video loading timeout, attempting play anyway');
+                video.removeEventListener('loadedmetadata', onMetadata);
                 resolve();
-              }, isIOS ? 3000 : 2000);
+              }, isIOS ? 1000 : 1500); // Reduced timeouts
               
               const onCanPlay = () => {
                 clearTimeout(timeoutId);
                 video.removeEventListener('canplay', onCanPlay);
                 video.removeEventListener('loadeddata', onLoadedData);
+                video.removeEventListener('loadedmetadata', onMetadata);
                 resolve();
               };
               const onLoadedData = () => {
@@ -284,12 +323,24 @@ export const VideoCard = ({ videoUrl, brand, description, isActive, shouldPreloa
                   clearTimeout(timeoutId);
                   video.removeEventListener('canplay', onCanPlay);
                   video.removeEventListener('loadeddata', onLoadedData);
+                  video.removeEventListener('loadedmetadata', onMetadata);
+                  resolve();
+                }
+              };
+              const onMetadata = () => {
+                // For iOS, metadata is enough to try playing
+                if (isIOS && video.readyState >= 1) {
+                  clearTimeout(timeoutId);
+                  video.removeEventListener('canplay', onCanPlay);
+                  video.removeEventListener('loadeddata', onLoadedData);
+                  video.removeEventListener('loadedmetadata', onMetadata);
                   resolve();
                 }
               };
               
               video.addEventListener('canplay', onCanPlay);
               video.addEventListener('loadeddata', onLoadedData);
+              video.addEventListener('loadedmetadata', onMetadata);
             });
           }
           
@@ -308,9 +359,8 @@ export const VideoCard = ({ videoUrl, brand, description, isActive, shouldPreloa
             await video.play();
           } catch (error) {
             console.warn('Video play failed (non-critical):', error);
-            // For iOS, retry with longer delay
-            const retryDelay = isIOS ? 500 : 100;
-            setTimeout(async () => {
+            // Retry immediately with requestAnimationFrame for faster recovery
+            requestAnimationFrame(async () => {
               try {
                 if (!video || !videoRef.current) return;
                 if (isIOS) {
@@ -318,9 +368,20 @@ export const VideoCard = ({ videoUrl, brand, description, isActive, shouldPreloa
                 }
                 await video.play();
               } catch (retryError) {
-                console.warn('Video play retry failed (non-critical):', retryError);
+                // Final retry with small delay if immediate retry fails
+                setTimeout(async () => {
+                  try {
+                    if (!video || !videoRef.current) return;
+                    if (isIOS) {
+                      video.muted = true;
+                    }
+                    await video.play();
+                  } catch (finalError) {
+                    console.warn('Video play final retry failed (non-critical):', finalError);
+                  }
+                }, isIOS ? 200 : 100);
               }
-            }, retryDelay);
+            });
           }
         } catch (error) {
           console.warn('Video play attempt failed (non-critical):', error);
@@ -390,8 +451,13 @@ export const VideoCard = ({ videoUrl, brand, description, isActive, shouldPreloa
     setHasError(false);
     setIsLoading(true);
     setVideoSrc("");
-    // Trigger reload by resetting and setting src again
-    setTimeout(() => setVideoSrc(videoUrl), 100);
+    // Trigger reload immediately using requestAnimationFrame
+    requestAnimationFrame(() => {
+      setVideoSrc(videoUrl);
+      if (videoRef.current) {
+        videoRef.current.load();
+      }
+    });
   };
 
   return (
@@ -420,12 +486,12 @@ export const VideoCard = ({ videoUrl, brand, description, isActive, shouldPreloa
       
       <video
         ref={videoRef}
-        src={videoSrc}
+        src={videoSrc || undefined}
         loop
         muted={isMuted}
         playsInline
-        preload="auto"
-        className={`w-full h-full object-contain md:object-cover transition-opacity duration-300 ${isLoading && showLoadingSpinner ? 'opacity-0' : 'opacity-100'}`}
+        preload={videoSrc && shouldPreload ? "auto" : "metadata"}
+        className={`w-full h-full object-contain md:object-cover transition-opacity duration-200 ${isLoading && showLoadingSpinner ? 'opacity-0' : 'opacity-100'}`}
         webkit-playsinline="true"
         x-webkit-airplay="allow"
         disablePictureInPicture

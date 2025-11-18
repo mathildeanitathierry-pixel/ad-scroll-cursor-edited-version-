@@ -27,21 +27,33 @@ const Index = () => {
     setVideoList(mockVideoAds);
   }, []);
 
-  // Preload ALL videos immediately when page loads
+  // Optimized preloading strategy - prioritize first videos, load others progressively
   useEffect(() => {
     if (videoList.length === 0) return;
 
-    // Preload ALL videos immediately - they should already be preloading via HTML <link> tags
-    const allVideoIndices = Array.from({ length: videoList.length }, (_, i) => i);
-    
-    allVideoIndices.forEach((index) => {
+    // Prioritize first 3 videos for immediate loading
+    const priorityVideos = [0, 1, 2].filter(i => i < videoList.length);
+    priorityVideos.forEach((index) => {
       setLoadedVideos(prev => new Set([...prev, index]));
     });
 
-    // Hide initial loading after timeout (fallback if video doesn't load)
+    // Load remaining videos progressively with small delays to avoid overwhelming network
+    const remainingVideos = Array.from({ length: videoList.length }, (_, i) => i)
+      .filter(i => !priorityVideos.includes(i));
+    
+    remainingVideos.forEach((index, delayIndex) => {
+      // Stagger loading to avoid network congestion
+      setTimeout(() => {
+        setLoadedVideos(prev => new Set([...prev, index]));
+      }, delayIndex * 200); // 200ms between each video
+    });
+
+    // Hide initial loading after shorter timeout for mobile (iOS is slower)
+    const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+    const timeout = isMobile ? 1500 : 2000; // Reduced timeout
     const timer = setTimeout(() => {
       setIsInitialLoading(false);
-    }, 3000);
+    }, timeout);
 
     return () => clearTimeout(timer);
   }, [videoList.length]);
@@ -173,11 +185,12 @@ const Index = () => {
 
   // Track when first video is loaded to hide initial spinner
   const handleVideoLoaded = useCallback((index: number) => {
-    if (index === 0) {
+    // Hide initial loading as soon as first video loads (especially important for iOS)
+    if (index === 0 || isInitialLoading) {
       setIsInitialLoading(false);
     }
     setLoadedVideos(prev => new Set([...prev, index]));
-  }, []);
+  }, [isInitialLoading]);
 
 
   return (
