@@ -75,14 +75,42 @@ export const VideoCard = ({ videoUrl, brand, description, isActive, shouldPreloa
     };
   }, [videoUrl, videoSrc, shouldPreload]);
 
-  // Handle video loading events and force load when preloading
+  // Handle video loading events - iOS optimized
   useEffect(() => {
     const video = videoRef.current;
     if (!video || !videoSrc) return;
     
+    // Detect iOS
+    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || 
+                  (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    
     // Force video to load if shouldPreload is true
-    if (shouldPreload && video.readyState === 0) {
-      video.load();
+    if (shouldPreload) {
+      if (video.readyState === 0) {
+        video.load();
+      }
+      
+      // For iOS, don't use aggressive buffering as it can cause issues
+      if (!isIOS) {
+        // Force video to buffer more by seeking ahead (desktop only)
+        const forceBuffer = () => {
+          if (video.readyState >= 2 && video.duration > 0 && !isActive) {
+            const seekTime = Math.min(10, video.duration * 0.5);
+            const savedTime = video.currentTime;
+            if (savedTime < 1) {
+              video.currentTime = seekTime;
+              setTimeout(() => {
+                if (video.currentTime === seekTime) {
+                  video.currentTime = 0;
+                }
+              }, 100);
+            }
+          }
+        };
+        
+        video.addEventListener('loadedmetadata', forceBuffer, { once: true });
+        video.addEventListener('canplay', forceBuffer, { once: true });
+      }
     }
     
     const handleCanPlayThrough = () => {
@@ -105,56 +133,103 @@ export const VideoCard = ({ videoUrl, brand, description, isActive, shouldPreloa
       }
     };
 
-    const handleError = () => {
+    const handleError = (e: Event) => {
       setIsLoading(false);
       setHasError(true);
+      const error = e.target as HTMLVideoElement;
+      console.error('Video error:', error.error);
       toast.error(`Failed to load video: ${brand}`);
+    };
+    
+    // iOS-specific: Listen for stalled events
+    const handleStalled = () => {
+      console.warn('Video stalled, attempting to reload:', brand);
+      if (video.networkState === HTMLMediaElement.NETWORK_STALLED) {
+        video.load();
+      }
     };
     
     video.addEventListener('canplaythrough', handleCanPlayThrough);
     video.addEventListener('loadeddata', handleLoadedData);
     video.addEventListener('error', handleError);
+    if (isIOS) {
+      video.addEventListener('stalled', handleStalled);
+    }
     
     return () => {
       video.removeEventListener('canplaythrough', handleCanPlayThrough);
       video.removeEventListener('loadeddata', handleLoadedData);
       video.removeEventListener('error', handleError);
+      if (isIOS) {
+        video.removeEventListener('stalled', handleStalled);
+      }
     };
-  }, [videoSrc, brand, onLoaded, hasLoadedOnce, shouldPreload]);
+  }, [videoSrc, brand, onLoaded, hasLoadedOnce, shouldPreload, isActive]);
 
-  // Wait for video to be ready before playing
+  // Wait for video to be ready before playing - iOS optimized
   useEffect(() => {
     const video = videoRef.current;
     if (!video || !videoSrc) return;
 
+    // Detect iOS
+    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || 
+                  (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+
     if (isActive) {
       hasAwardedPointRef.current = false;
-      video.muted = isMuted;
+      // Ensure video is muted for iOS autoplay
+      video.muted = true; // Always start muted on iOS
       video.currentTime = 0;
       
       const attemptPlay = async () => {
-        // Wait for video to be ready - if preloaded, it should be ready quickly
-        if (video.readyState < 2) {
+        // For iOS, wait longer and ensure video has more data loaded
+        const minReadyState = isIOS ? 3 : 2; // iOS needs more data
+        
+        if (video.readyState < minReadyState) {
           await new Promise<void>((resolve) => {
-            const onLoadedData = () => {
+            const onCanPlay = () => {
+              video.removeEventListener('canplay', onCanPlay);
               video.removeEventListener('loadeddata', onLoadedData);
               resolve();
             };
+            const onLoadedData = () => {
+              if (video.readyState >= minReadyState) {
+                video.removeEventListener('canplay', onCanPlay);
+                video.removeEventListener('loadeddata', onLoadedData);
+                resolve();
+              }
+            };
+            
+            video.addEventListener('canplay', onCanPlay);
             video.addEventListener('loadeddata', onLoadedData);
             
-            // Shorter timeout for preloaded videos
-            const timeout = shouldPreload ? 200 : 500;
+            // Longer timeout for iOS
+            const timeout = isIOS ? 2000 : (shouldPreload ? 200 : 500);
             setTimeout(resolve, timeout);
           });
         }
         
-        // Now play
+        // Now play - iOS requires muted autoplay
         try {
+          // Ensure muted before play on iOS
+          if (isIOS) {
+            video.muted = true;
+          }
           await video.play();
         } catch (error) {
           console.error('Video play failed:', error);
-          // Retry with shorter delay for preloaded videos
-          setTimeout(() => video.play().catch(() => {}), 100);
+          // For iOS, retry with longer delay
+          const retryDelay = isIOS ? 500 : 100;
+          setTimeout(async () => {
+            try {
+              if (isIOS) {
+                video.muted = true;
+              }
+              await video.play();
+            } catch (retryError) {
+              console.error('Video play retry failed:', retryError);
+            }
+          }, retryDelay);
         }
       };
       
@@ -244,11 +319,12 @@ export const VideoCard = ({ videoUrl, brand, description, isActive, shouldPreloa
         loop
         muted={isMuted}
         playsInline
-        preload={shouldPreload ? "auto" : "none"}
+        preload="auto"
         className={`w-full h-full object-contain md:object-cover transition-opacity duration-300 ${isLoading && showLoadingSpinner ? 'opacity-0' : 'opacity-100'}`}
-        crossOrigin="anonymous"
         webkit-playsinline="true"
         x-webkit-airplay="allow"
+        disablePictureInPicture
+        controlsList="nodownload nofullscreen noremoteplayback"
       />
       
       {/* Gradient overlay - hidden on mobile */}

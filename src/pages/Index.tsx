@@ -179,6 +179,7 @@ const Index = () => {
     setLoadedVideos(prev => new Set([...prev, index]));
   }, []);
 
+
   return (
     <div className="relative w-full h-screen overflow-hidden bg-background">
       <CashCounter points={points} />
