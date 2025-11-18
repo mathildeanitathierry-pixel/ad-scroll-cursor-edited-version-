@@ -10,13 +10,16 @@ interface VideoCardProps {
   isActive: boolean;
   shouldPreload: boolean;
   onWatched: () => void;
+  onLoaded?: () => void;
+  showLoadingSpinner?: boolean;
 }
 
-export const VideoCard = ({ videoUrl, brand, description, isActive, shouldPreload, onWatched }: VideoCardProps) => {
+export const VideoCard = ({ videoUrl, brand, description, isActive, shouldPreload, onWatched, onLoaded, showLoadingSpinner = true }: VideoCardProps) => {
   const [isMuted, setIsMuted] = useState(true);
   const [isLoading, setIsLoading] = useState(true);
   const [videoSrc, setVideoSrc] = useState<string>("");
   const [hasError, setHasError] = useState(false);
+  const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const hasAwardedPointRef = useRef(false);
@@ -72,20 +75,33 @@ export const VideoCard = ({ videoUrl, brand, description, isActive, shouldPreloa
     };
   }, [videoUrl, videoSrc, shouldPreload]);
 
-  // Handle video loading events
+  // Handle video loading events and force load when preloading
   useEffect(() => {
     const video = videoRef.current;
     if (!video || !videoSrc) return;
     
+    // Force video to load if shouldPreload is true
+    if (shouldPreload && video.readyState === 0) {
+      video.load();
+    }
+    
     const handleCanPlayThrough = () => {
       setIsLoading(false);
       setHasError(false);
+      if (!hasLoadedOnce) {
+        setHasLoadedOnce(true);
+        onLoaded?.();
+      }
     };
     
     const handleLoadedData = () => {
       if (video.readyState >= 2) {
         setIsLoading(false);
         setHasError(false);
+        if (!hasLoadedOnce) {
+          setHasLoadedOnce(true);
+          onLoaded?.();
+        }
       }
     };
 
@@ -104,7 +120,7 @@ export const VideoCard = ({ videoUrl, brand, description, isActive, shouldPreloa
       video.removeEventListener('loadeddata', handleLoadedData);
       video.removeEventListener('error', handleError);
     };
-  }, [videoSrc, brand]);
+  }, [videoSrc, brand, onLoaded, hasLoadedOnce, shouldPreload]);
 
   // Wait for video to be ready before playing
   useEffect(() => {
@@ -117,7 +133,7 @@ export const VideoCard = ({ videoUrl, brand, description, isActive, shouldPreloa
       video.currentTime = 0;
       
       const attemptPlay = async () => {
-        // Wait for video to be ready (reduced timeout for faster playback)
+        // Wait for video to be ready - if preloaded, it should be ready quickly
         if (video.readyState < 2) {
           await new Promise<void>((resolve) => {
             const onLoadedData = () => {
@@ -126,8 +142,9 @@ export const VideoCard = ({ videoUrl, brand, description, isActive, shouldPreloa
             };
             video.addEventListener('loadeddata', onLoadedData);
             
-            // Reduced timeout for faster playback - videos should be preloaded
-            setTimeout(resolve, 500);
+            // Shorter timeout for preloaded videos
+            const timeout = shouldPreload ? 200 : 500;
+            setTimeout(resolve, timeout);
           });
         }
         
@@ -163,7 +180,7 @@ export const VideoCard = ({ videoUrl, brand, description, isActive, shouldPreloa
         clearTimeout(watchTimerRef.current);
       }
     };
-  }, [isActive, onWatched, brand, isMuted, videoSrc]);
+  }, [isActive, onWatched, brand, isMuted, videoSrc, shouldPreload]);
 
   const handleShare = async () => {
     if (navigator.share) {
@@ -199,8 +216,8 @@ export const VideoCard = ({ videoUrl, brand, description, isActive, shouldPreloa
 
   return (
     <div ref={containerRef} className="relative w-full h-screen snap-item overflow-hidden bg-background">
-      {/* Loading skeleton */}
-      {isLoading && !hasError && (
+      {/* Loading skeleton - only show if showLoadingSpinner is true */}
+      {isLoading && !hasError && showLoadingSpinner && (
         <div className="absolute inset-0 flex items-center justify-center bg-muted/20 backdrop-blur-sm animate-fade-in">
           <div className="flex flex-col items-center gap-4">
             <div className="w-12 h-12 border-4 border-primary/30 border-t-primary rounded-full animate-spin" />
@@ -227,8 +244,8 @@ export const VideoCard = ({ videoUrl, brand, description, isActive, shouldPreloa
         loop
         muted={isMuted}
         playsInline
-        preload={shouldPreload ? "auto" : "metadata"}
-        className={`w-full h-full object-contain md:object-cover transition-opacity duration-300 ${isLoading || !videoSrc ? 'opacity-0' : 'opacity-100'}`}
+        preload={shouldPreload ? "auto" : "none"}
+        className={`w-full h-full object-contain md:object-cover transition-opacity duration-300 ${isLoading && showLoadingSpinner ? 'opacity-0' : 'opacity-100'}`}
         crossOrigin="anonymous"
         webkit-playsinline="true"
         x-webkit-airplay="allow"

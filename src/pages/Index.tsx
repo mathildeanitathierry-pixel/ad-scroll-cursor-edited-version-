@@ -16,6 +16,8 @@ const Index = () => {
   const [points, setPoints] = useState(0);
   const [currentVideoIndex, setCurrentVideoIndex] = useState(0);
   const [videoList, setVideoList] = useState<VideoAd[]>([]);
+  const [isInitialLoading, setIsInitialLoading] = useState(true);
+  const [loadedVideos, setLoadedVideos] = useState<Set<number>>(new Set());
   const containerRef = useRef<HTMLDivElement>(null);
   const touchStartY = useRef(0);
   const navigate = useNavigate();
@@ -24,6 +26,25 @@ const Index = () => {
   useEffect(() => {
     setVideoList(mockVideoAds);
   }, []);
+
+  // Preload ALL videos immediately when page loads
+  useEffect(() => {
+    if (videoList.length === 0) return;
+
+    // Preload ALL videos immediately - they should already be preloading via HTML <link> tags
+    const allVideoIndices = Array.from({ length: videoList.length }, (_, i) => i);
+    
+    allVideoIndices.forEach((index) => {
+      setLoadedVideos(prev => new Set([...prev, index]));
+    });
+
+    // Hide initial loading after timeout (fallback if video doesn't load)
+    const timer = setTimeout(() => {
+      setIsInitialLoading(false);
+    }, 3000);
+
+    return () => clearTimeout(timer);
+  }, [videoList.length]);
 
   // Auth state management (no redirect, allow browsing without login)
   useEffect(() => {
@@ -150,9 +171,27 @@ const Index = () => {
     }
   };
 
+  // Track when first video is loaded to hide initial spinner
+  const handleVideoLoaded = useCallback((index: number) => {
+    if (index === 0) {
+      setIsInitialLoading(false);
+    }
+    setLoadedVideos(prev => new Set([...prev, index]));
+  }, []);
+
   return (
     <div className="relative w-full h-screen overflow-hidden bg-background">
       <CashCounter points={points} />
+      
+      {/* Global loading spinner - only shown at the beginning */}
+      {isInitialLoading && (
+        <div className="fixed inset-0 flex items-center justify-center bg-background z-50">
+          <div className="flex flex-col items-center gap-4">
+            <div className="w-12 h-12 border-4 border-primary/30 border-t-primary rounded-full animate-spin" />
+            <p className="text-sm text-muted-foreground">Loading videos...</p>
+          </div>
+        </div>
+      )}
       
       <div 
         ref={containerRef}
@@ -162,8 +201,8 @@ const Index = () => {
       >
       {videoList.map((video, index) => {
           const isActive = index === currentVideoIndex;
-          // Preload all videos for instant playback when website opens
-          const shouldPreload = true;
+          // Preload ALL videos immediately - they're all in the preload set
+          const shouldPreload = loadedVideos.has(index);
           
           return (
             <VideoCard
@@ -174,6 +213,8 @@ const Index = () => {
               isActive={isActive}
               shouldPreload={shouldPreload}
               onWatched={handleWatched}
+              onLoaded={() => handleVideoLoaded(index)}
+              showLoadingSpinner={false}
             />
           );
         })}
