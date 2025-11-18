@@ -1,0 +1,129 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Definition of the design system. All colors, gradients, fonts, etc should be defined here. 
+All colors MUST be HSL.
+*/
+
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 0 0% 5%;
+
+    --card: 0 0% 98%;
+    --card-foreground: 0 0% 5%;
+
+    --popover: 0 0% 98%;
+    --popover-foreground: 0 0% 5%;
+
+    --primary: 22 100% 58%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 30 95% 52%;
+    --secondary-foreground: 0 0% 100%;
+
+    --muted: 0 0% 96%;
+    --muted-foreground: 0 0% 40%;
+
+    --accent: 22 100% 58%;
+    --accent-foreground: 0 0% 100%;
+
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 0 0% 90%;
+    --input: 0 0% 90%;
+    --ring: 22 100% 58%;
+
+    --radius: 1rem;
+
+    /* Cash counter glow */
+    --cash-glow: 22 100% 58%;
+    --cash-shadow: 0 0 30px hsl(22 100% 58% / 0.6);
+    
+    /* Gradients */
+    --gradient-cash: linear-gradient(135deg, hsl(22 100% 58%), hsl(30 95% 52%));
+    --gradient-overlay: linear-gradient(180deg, transparent 0%, hsl(0 0% 100% / 0.9) 100%);
+
+    /* Animations */
+    --transition-smooth: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground overflow-hidden;
+  }
+
+  /* Smooth scrolling for video container */
+  .snap-container {
+    scroll-snap-type: y mandatory;
+    scroll-behavior: smooth;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+    overscroll-behavior-y: contain;
+    will-change: scroll-position;
+  }
+
+  .snap-container::-webkit-scrollbar {
+    display: none;
+  }
+
+  .snap-item {
+    scroll-snap-align: start;
+    scroll-snap-stop: always;
+    will-change: transform;
+  }
+
+  /* Cash counter animation */
+  @keyframes cash-pulse {
+    0%, 100% {
+      text-shadow: 0 0 20px hsl(var(--cash-glow)), 0 0 40px hsl(var(--cash-glow));
+    }
+    50% {
+      text-shadow: 0 0 30px hsl(var(--cash-glow)), 0 0 60px hsl(var(--cash-glow));
+    }
+  }
+
+  .cash-glow {
+    animation: cash-pulse 2s ease-in-out infinite;
+  }
+
+  /* Video fade animations */
+  @keyframes fade-in-up {
+    from {
+      opacity: 0;
+      transform: translateY(20px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  .animate-fade-in-up {
+    animation: fade-in-up 0.5s ease-out;
+  }
+
+  /* Count up animation */
+  @keyframes count-up {
+    from {
+      transform: scale(1.5);
+      opacity: 0;
+    }
+    to {
+      transform: scale(1);
+      opacity: 1;
+    }
+  }
+
+  .animate-count-up {
+    animation: count-up 0.3s ease-out;
+  }
+}
