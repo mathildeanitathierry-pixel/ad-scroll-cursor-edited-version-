@@ -1,0 +1,1 @@
+# ad-scroll-cursor-edited-version-
