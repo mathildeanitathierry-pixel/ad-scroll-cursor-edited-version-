@@ -35,21 +35,11 @@ export const VideoCard = ({ videoUrl, brand, description, isActive, shouldPreloa
     const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || 
                   (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 
-    // If shouldPreload is true, load immediately without waiting for observer
+    // Load video when it becomes active or should be preloaded
+    // For ad videos, we use preload="none" and only load when active or near viewport
     if (shouldPreload && !videoSrc) {
       setVideoSrc(videoUrl);
       setIsLoading(true);
-      
-      // On iOS, ensure the video element gets the src immediately (no delay needed)
-      if (isIOS && videoRef.current) {
-        // Use requestAnimationFrame for immediate execution after render
-        requestAnimationFrame(() => {
-          if (videoRef.current && !videoRef.current.src) {
-            videoRef.current.src = videoUrl;
-            videoRef.current.load();
-          }
-        });
-      }
       return;
     }
 
@@ -99,8 +89,9 @@ export const VideoCard = ({ videoUrl, brand, description, isActive, shouldPreloa
     const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || 
                   (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
     
-    // Force video to load if shouldPreload is true - optimized for speed
-    if (shouldPreload && videoSrc) {
+    // Load video only when active or when shouldPreload is true
+    // For ad videos, we use preload="none" to save bandwidth until needed
+    if (videoSrc) {
       try {
         if (video) {
           // Ensure src is set first (critical for loading)
@@ -108,14 +99,18 @@ export const VideoCard = ({ videoUrl, brand, description, isActive, shouldPreloa
             video.src = videoSrc;
           }
           
-          // On iOS or if not loaded, explicitly call load() to start loading immediately
-          if (isIOS || video.readyState === 0 || video.readyState === undefined) {
-            // Use requestAnimationFrame for immediate execution
-            requestAnimationFrame(() => {
-              if (video && videoRef.current && video.src === videoSrc) {
-                video.load();
-              }
-            });
+          // Only load if video is active or should be preloaded
+          // This prevents loading videos that won't be watched
+          if (isActive || shouldPreload) {
+            // On iOS or if not loaded, explicitly call load() to start loading
+            if (isIOS || video.readyState === 0 || video.readyState === undefined) {
+              // Use requestAnimationFrame for immediate execution
+              requestAnimationFrame(() => {
+                if (video && videoRef.current && video.src === videoSrc) {
+                  video.load();
+                }
+              });
+            }
           }
         }
       } catch (error) {
@@ -490,7 +485,7 @@ export const VideoCard = ({ videoUrl, brand, description, isActive, shouldPreloa
         loop
         muted={isMuted}
         playsInline
-        preload={videoSrc && shouldPreload ? "auto" : "metadata"}
+        preload={isActive ? "metadata" : "none"}
         className={`w-full h-full object-contain md:object-cover transition-opacity duration-200 ${isLoading && showLoadingSpinner ? 'opacity-0' : 'opacity-100'}`}
         webkit-playsinline="true"
         x-webkit-airplay="allow"

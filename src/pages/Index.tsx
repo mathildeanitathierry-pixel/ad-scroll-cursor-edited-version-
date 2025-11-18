@@ -27,36 +27,39 @@ const Index = () => {
     setVideoList(mockVideoAds);
   }, []);
 
-  // Optimized preloading strategy - prioritize first videos, load others progressively
+  // Optimized preloading strategy - only preload first video, others load on demand
   useEffect(() => {
     if (videoList.length === 0) return;
 
-    // Prioritize first 3 videos for immediate loading
-    const priorityVideos = [0, 1, 2].filter(i => i < videoList.length);
-    priorityVideos.forEach((index) => {
-      setLoadedVideos(prev => new Set([...prev, index]));
-    });
-
-    // Load remaining videos progressively with small delays to avoid overwhelming network
-    const remainingVideos = Array.from({ length: videoList.length }, (_, i) => i)
-      .filter(i => !priorityVideos.includes(i));
-    
-    remainingVideos.forEach((index, delayIndex) => {
-      // Stagger loading to avoid network congestion
-      setTimeout(() => {
-        setLoadedVideos(prev => new Set([...prev, index]));
-      }, delayIndex * 200); // 200ms between each video
-    });
+    // Only preload the first video immediately (the one user will see first)
+    // Other videos will load when they become active (using preload="none" strategy)
+    setLoadedVideos(prev => new Set([...prev, 0]));
 
     // Hide initial loading after shorter timeout for mobile (iOS is slower)
     const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-    const timeout = isMobile ? 1500 : 2000; // Reduced timeout
+    const timeout = isMobile ? 1500 : 2000;
     const timer = setTimeout(() => {
       setIsInitialLoading(false);
     }, timeout);
 
     return () => clearTimeout(timer);
   }, [videoList.length]);
+
+  // Preload videos as user scrolls (when they become active or are about to)
+  useEffect(() => {
+    if (videoList.length === 0) return;
+
+    // Preload current video and next 2 videos when scrolling
+    const videosToPreload = [
+      currentVideoIndex,
+      currentVideoIndex + 1,
+      currentVideoIndex + 2,
+    ].filter(index => index >= 0 && index < videoList.length);
+
+    videosToPreload.forEach((index) => {
+      setLoadedVideos(prev => new Set([...prev, index]));
+    });
+  }, [currentVideoIndex, videoList.length]);
 
   // Auth state management (no redirect, allow browsing without login)
   useEffect(() => {
