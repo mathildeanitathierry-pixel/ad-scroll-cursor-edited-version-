@@ -267,15 +267,8 @@ const Index = () => {
       >
       {videoList.map((video, index) => {
           const isActive = index === currentVideoIndex;
-          // CRITICAL FIX: On mobile, always mark active video and next 2 for preload
-          // This ensures videos after index 5 load properly
-          const isMobile = isMobileDevice();
-          const shouldPreload = loadedVideos.has(index) || (isMobile && (isActive || index === currentVideoIndex + 1 || index === currentVideoIndex + 2));
-          
-          // Debug logging for mobile
-          if (isMobile && isActive && !loadedVideos.has(index)) {
-            console.log(`[Index] MOBILE: Video ${index} (${video.brand}) is active but not in loadedVideos set`);
-          }
+          // Preload if in loadedVideos set OR if active (always load active video)
+          const shouldPreload = loadedVideos.has(index) || isActive;
           
           return (
             <VideoCard

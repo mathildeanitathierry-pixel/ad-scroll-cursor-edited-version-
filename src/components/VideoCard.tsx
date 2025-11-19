@@ -121,46 +121,39 @@ export const VideoCard = ({ videoUrl, brand, description, isActive, shouldPreloa
   // CRITICAL FIX: Ensure video loads when it becomes active (ESPECIALLY ON MOBILE)
   // This fixes the issue where videos after a certain point don't load on iOS
   useEffect(() => {
+    if (!isActive) return;
+    
     const isMobile = isMobileDevice();
     const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || 
                   (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
     
-    if (isActive) {
-      // On mobile, be VERY aggressive about loading when active
-      if (isMobile && !videoSrc) {
-        console.log(`[VideoCard] MOBILE: Force loading video for ${brand} (active but no src)`);
-        const optimalUrl = getOptimalVideoUrl(videoUrl);
-        const sources = getVideoSources(videoUrl);
-        
-        setVideoSrc(optimalUrl);
-        setVideoSources(sources);
-        setIsLoading(true);
-        
-        // On iOS, also directly set the video src immediately
-        if (isIOS && videoRef.current) {
-          requestAnimationFrame(() => {
-            const video = videoRef.current;
-            if (video && optimalUrl) {
-              video.src = optimalUrl;
-              video.load();
-            }
-          });
-        }
-      } else if (!videoSrc) {
-        // Desktop fallback
-        const optimalUrl = getOptimalVideoUrl(videoUrl);
-        const sources = getVideoSources(videoUrl);
-        setVideoSrc(optimalUrl);
-        setVideoSources(sources);
-        setIsLoading(true);
-      } else if (isMobile && videoRef.current && videoSrc) {
-        // On mobile, ensure video element has src set even if state is set
-        const video = videoRef.current;
-        if (video.src !== videoSrc) {
-          console.log(`[VideoCard] MOBILE: Setting video src directly for ${brand}`);
-          video.src = videoSrc;
-          video.load();
-        }
+    // If video is active but has no src, load it immediately
+    if (!videoSrc) {
+      const optimalUrl = getOptimalVideoUrl(videoUrl);
+      const sources = getVideoSources(videoUrl);
+      
+      console.log(`[VideoCard] ${isMobile ? 'MOBILE: ' : ''}Force loading active video for ${brand}`);
+      setVideoSrc(optimalUrl);
+      setVideoSources(sources);
+      setIsLoading(true);
+      
+      // On mobile/iOS, also directly set the video src immediately
+      if ((isMobile || isIOS) && videoRef.current) {
+        requestAnimationFrame(() => {
+          const video = videoRef.current;
+          if (video && optimalUrl) {
+            video.src = optimalUrl;
+            video.load();
+          }
+        });
+      }
+    } else if (isMobile && videoRef.current && videoSrc) {
+      // On mobile, ensure video element has src set even if state is set
+      const video = videoRef.current;
+      if (video.src !== videoSrc) {
+        console.log(`[VideoCard] MOBILE: Setting video src directly for ${brand}`);
+        video.src = videoSrc;
+        video.load();
       }
     }
   }, [isActive, videoSrc, videoUrl, brand]);
