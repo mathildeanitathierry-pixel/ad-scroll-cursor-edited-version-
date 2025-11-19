@@ -65,21 +65,44 @@ const Index = () => {
     const preloadCount = isMobile ? 2 : 2;
     
     // CRITICAL FIX: Always ensure current video is marked for preload
-    // This fixes the issue where videos after index 6 don't load
+    // This fixes the issue where videos after index 5 (Oakley) don't load on mobile
     const videosToPreload = [
       currentVideoIndex, // Always include current video
       ...Array.from({ length: preloadCount }, (_, i) => currentVideoIndex + i + 1),
     ].filter(index => index >= 0 && index < videoList.length);
 
-    videosToPreload.forEach((index) => {
-      setLoadedVideos(prev => {
-        const newSet = new Set(prev);
-        newSet.add(index);
-        return newSet;
+    // On mobile, be more aggressive - preload current and next 3 videos
+    if (isMobile) {
+      const mobilePreloadIndices = [
+        currentVideoIndex,
+        currentVideoIndex + 1,
+        currentVideoIndex + 2,
+        currentVideoIndex + 3,
+      ].filter(index => index >= 0 && index < videoList.length);
+      
+      mobilePreloadIndices.forEach((index) => {
+        setLoadedVideos(prev => {
+          const newSet = new Set(prev);
+          newSet.add(index);
+          return newSet;
+        });
       });
-    });
+      
+      // Debug logging
+      if (currentVideoIndex >= 5) {
+        console.log(`[Index] MOBILE: Preloading videos starting from index ${currentVideoIndex}:`, mobilePreloadIndices);
+      }
+    } else {
+      videosToPreload.forEach((index) => {
+        setLoadedVideos(prev => {
+          const newSet = new Set(prev);
+          newSet.add(index);
+          return newSet;
+        });
+      });
+    }
     
-    // Also ensure current video is loaded even if it wasn't in the preload list
+    // Also ensure current video is ALWAYS loaded
     setLoadedVideos(prev => {
       const newSet = new Set(prev);
       newSet.add(currentVideoIndex);
@@ -244,8 +267,15 @@ const Index = () => {
       >
       {videoList.map((video, index) => {
           const isActive = index === currentVideoIndex;
-          // Preload ALL videos immediately - they're all in the preload set
-          const shouldPreload = loadedVideos.has(index);
+          // CRITICAL FIX: On mobile, always mark active video and next 2 for preload
+          // This ensures videos after index 5 load properly
+          const isMobile = isMobileDevice();
+          const shouldPreload = loadedVideos.has(index) || (isMobile && (isActive || index === currentVideoIndex + 1 || index === currentVideoIndex + 2));
+          
+          // Debug logging for mobile
+          if (isMobile && isActive && !loadedVideos.has(index)) {
+            console.log(`[Index] MOBILE: Video ${index} (${video.brand}) is active but not in loadedVideos set`);
+          }
           
           return (
             <VideoCard

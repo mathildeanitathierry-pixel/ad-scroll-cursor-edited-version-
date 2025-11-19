@@ -42,15 +42,29 @@ export const VideoCard = ({ videoUrl, brand, description, isActive, shouldPreloa
     // Load video when it becomes active or should be preloaded
     // CRITICAL FIX: Also load when video becomes active, even if not preloaded
     // This fixes the issue where videos after a certain point don't load
+    // ESPECIALLY important on mobile where iOS limits concurrent video loads
     if ((shouldPreload || isActive) && !videoSrc) {
       // Get optimal video URL based on device and network
       const optimalUrl = getOptimalVideoUrl(videoUrl);
       const sources = getVideoSources(videoUrl);
       
-      console.log(`[VideoCard] Loading video for ${brand} (isActive: ${isActive}, shouldPreload: ${shouldPreload})`);
+      const isMobile = isMobileDevice();
+      console.log(`[VideoCard] ${isMobile ? 'MOBILE: ' : ''}Loading video for ${brand} (isActive: ${isActive}, shouldPreload: ${shouldPreload})`);
       setVideoSrc(optimalUrl);
       setVideoSources(sources);
       setIsLoading(true);
+      
+      // On mobile, also set src directly on video element immediately
+      if (isMobile && videoRef.current && optimalUrl) {
+        requestAnimationFrame(() => {
+          const video = videoRef.current;
+          if (video && optimalUrl) {
+            console.log(`[VideoCard] MOBILE: Directly setting video.src for ${brand}`);
+            video.src = optimalUrl;
+            video.load();
+          }
+        });
+      }
       
       // Don't return early - continue to set up IntersectionObserver as fallback
     }
