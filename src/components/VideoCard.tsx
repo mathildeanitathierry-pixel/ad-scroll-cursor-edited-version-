@@ -47,10 +47,12 @@ export const VideoCard = ({ videoUrl, brand, description, isActive, shouldPreloa
       const optimalUrl = getOptimalVideoUrl(videoUrl);
       const sources = getVideoSources(videoUrl);
       
+      console.log(`[VideoCard] Loading video for ${brand} (isActive: ${isActive}, shouldPreload: ${shouldPreload})`);
       setVideoSrc(optimalUrl);
       setVideoSources(sources);
       setIsLoading(true);
-      return;
+      
+      // Don't return early - continue to set up IntersectionObserver as fallback
     }
 
     // For videos that shouldn't preload, use IntersectionObserver for lazy loading
@@ -80,6 +82,7 @@ export const VideoCard = ({ videoUrl, brand, description, isActive, shouldPreloa
             const optimalUrl = getOptimalVideoUrl(videoUrl);
             const sources = getVideoSources(videoUrl);
             
+            console.log(`[VideoCard] IntersectionObserver triggered for ${brand}`);
             setVideoSrc(optimalUrl);
             setVideoSources(sources);
             setIsLoading(true);
@@ -87,7 +90,7 @@ export const VideoCard = ({ videoUrl, brand, description, isActive, shouldPreloa
         });
       },
       {
-        rootMargin: "100% 0px", // Increased from 50% to 100% for better preloading
+        rootMargin: "200% 0px", // Increased even more for aggressive preloading
         threshold: 0,
       }
     );
@@ -105,7 +108,8 @@ export const VideoCard = ({ videoUrl, brand, description, isActive, shouldPreloa
   // This fixes the issue where videos after a certain point don't load on iOS
   useEffect(() => {
     if (isActive && !videoSrc) {
-      // Video is active but hasn't loaded yet - force load
+      // Video is active but hasn't loaded yet - force load immediately
+      console.log(`[VideoCard] Force loading video for ${brand} (active but no src)`);
       const optimalUrl = getOptimalVideoUrl(videoUrl);
       const sources = getVideoSources(videoUrl);
       
@@ -113,7 +117,7 @@ export const VideoCard = ({ videoUrl, brand, description, isActive, shouldPreloa
       setVideoSources(sources);
       setIsLoading(true);
     }
-  }, [isActive, videoSrc, videoUrl]);
+  }, [isActive, videoSrc, videoUrl, brand]);
 
   // Initialize HLS.js for streaming support (non-iOS browsers)
   useEffect(() => {
@@ -240,10 +244,22 @@ export const VideoCard = ({ videoUrl, brand, description, isActive, shouldPreloa
             if (isIOS || video.readyState === 0 || video.readyState === undefined) {
               // Use requestAnimationFrame for immediate execution
               requestAnimationFrame(() => {
-                if (video && videoRef.current && video.src === videoSrc) {
-                  video.load();
+                if (video && videoRef.current) {
+                  // Ensure src is set before loading
+                  if (video.src !== videoSrc && videoSrc) {
+                    video.src = videoSrc;
+                  }
+                  if (video.src === videoSrc || videoSrc) {
+                    video.load();
+                  }
                 }
               });
+            } else {
+              // Even if readyState > 0, ensure src is set and try to load
+              if (video.src !== videoSrc && videoSrc) {
+                video.src = videoSrc;
+                video.load();
+              }
             }
           }
         }
@@ -413,7 +429,18 @@ export const VideoCard = ({ videoUrl, brand, description, isActive, shouldPreloa
   // Wait for video to be ready before playing - iOS optimized with crash prevention
   useEffect(() => {
     const video = videoRef.current;
-    if (!video || !videoSrc) return;
+    if (!video || !videoSrc) {
+      // If video is active but no src, try to load it
+      if (isActive && !videoSrc) {
+        console.log(`[VideoCard] Video active but no src for ${brand}, triggering load`);
+        const optimalUrl = getOptimalVideoUrl(videoUrl);
+        const sources = getVideoSources(videoUrl);
+        setVideoSrc(optimalUrl);
+        setVideoSources(sources);
+        setIsLoading(true);
+      }
+      return;
+    }
 
     // Detect iOS
     const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || 

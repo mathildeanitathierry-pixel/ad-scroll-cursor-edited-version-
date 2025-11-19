@@ -64,13 +64,26 @@ const Index = () => {
     // On desktop, preload next 2 videos
     const preloadCount = isMobile ? 2 : 2;
     
+    // CRITICAL FIX: Always ensure current video is marked for preload
+    // This fixes the issue where videos after index 6 don't load
     const videosToPreload = [
-      currentVideoIndex,
+      currentVideoIndex, // Always include current video
       ...Array.from({ length: preloadCount }, (_, i) => currentVideoIndex + i + 1),
     ].filter(index => index >= 0 && index < videoList.length);
 
     videosToPreload.forEach((index) => {
-      setLoadedVideos(prev => new Set([...prev, index]));
+      setLoadedVideos(prev => {
+        const newSet = new Set(prev);
+        newSet.add(index);
+        return newSet;
+      });
+    });
+    
+    // Also ensure current video is loaded even if it wasn't in the preload list
+    setLoadedVideos(prev => {
+      const newSet = new Set(prev);
+      newSet.add(currentVideoIndex);
+      return newSet;
     });
   }, [currentVideoIndex, videoList.length]);
 
