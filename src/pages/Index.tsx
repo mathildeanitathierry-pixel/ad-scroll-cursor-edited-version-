@@ -10,6 +10,7 @@ import { LogOut, User } from "lucide-react";
 import { signOut } from "@/lib/auth";
 import { toast } from "sonner";
 import { incrementUserStats, addWatchHistory } from "@/lib/stats";
+import { isMobileDevice } from "@/lib/video-utils";
 
 const Index = () => {
   const [session, setSession] = useState<Session | null>(null);
@@ -36,7 +37,7 @@ const Index = () => {
     setLoadedVideos(prev => new Set([...prev, 0]));
 
     // Hide initial loading after shorter timeout for mobile (iOS is slower)
-    const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+    const isMobile = isMobileDevice();
     const timeout = isMobile ? 1500 : 2000;
     const timer = setTimeout(() => {
       setIsInitialLoading(false);
@@ -46,14 +47,17 @@ const Index = () => {
   }, [videoList.length]);
 
   // Preload videos as user scrolls (when they become active or are about to)
+  // More conservative on mobile to save bandwidth
   useEffect(() => {
     if (videoList.length === 0) return;
 
-    // Preload current video and next 2 videos when scrolling
+    const isMobile = isMobileDevice();
+    // On mobile, only preload next 1 video. On desktop, preload next 2
+    const preloadCount = isMobile ? 1 : 2;
+    
     const videosToPreload = [
       currentVideoIndex,
-      currentVideoIndex + 1,
-      currentVideoIndex + 2,
+      ...Array.from({ length: preloadCount }, (_, i) => currentVideoIndex + i + 1),
     ].filter(index => index >= 0 && index < videoList.length);
 
     videosToPreload.forEach((index) => {

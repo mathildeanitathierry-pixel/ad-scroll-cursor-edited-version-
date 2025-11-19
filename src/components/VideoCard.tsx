@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import { Share2, Volume2, VolumeX } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
+import { isMobileDevice, getOptimalVideoUrl, getVideoSources } from "@/lib/video-utils";
 
 interface VideoCardProps {
   videoUrl: string;
@@ -18,6 +19,7 @@ export const VideoCard = ({ videoUrl, brand, description, isActive, shouldPreloa
   const [isMuted, setIsMuted] = useState(true);
   const [isLoading, setIsLoading] = useState(true);
   const [videoSrc, setVideoSrc] = useState<string>("");
+  const [videoSources, setVideoSources] = useState<Array<{ src: string; type: string }>>([]);
   const [hasError, setHasError] = useState(false);
   const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -38,7 +40,12 @@ export const VideoCard = ({ videoUrl, brand, description, isActive, shouldPreloa
     // Load video when it becomes active or should be preloaded
     // For ad videos, we use preload="none" and only load when active or near viewport
     if (shouldPreload && !videoSrc) {
-      setVideoSrc(videoUrl);
+      // Get optimal video URL based on device and network
+      const optimalUrl = getOptimalVideoUrl(videoUrl);
+      const sources = getVideoSources(videoUrl);
+      
+      setVideoSrc(optimalUrl);
+      setVideoSources(sources);
       setIsLoading(true);
       return;
     }
@@ -50,7 +57,12 @@ export const VideoCard = ({ videoUrl, brand, description, isActive, shouldPreloa
     const isInViewport = rect.top < viewportHeight * 1.5 && rect.bottom > -viewportHeight * 0.5;
     
     if (isInViewport && !videoSrc) {
-      setVideoSrc(videoUrl);
+      // Get optimal video URL based on device and network
+      const optimalUrl = getOptimalVideoUrl(videoUrl);
+      const sources = getVideoSources(videoUrl);
+      
+      setVideoSrc(optimalUrl);
+      setVideoSources(sources);
       setIsLoading(true);
       return;
     }
@@ -60,7 +72,12 @@ export const VideoCard = ({ videoUrl, brand, description, isActive, shouldPreloa
         entries.forEach((entry) => {
           // Load video when it's within 150% of viewport (allows smooth preloading)
           if (entry.isIntersecting && !videoSrc) {
-            setVideoSrc(videoUrl);
+            // Get optimal video URL based on device and network
+            const optimalUrl = getOptimalVideoUrl(videoUrl);
+            const sources = getVideoSources(videoUrl);
+            
+            setVideoSrc(optimalUrl);
+            setVideoSources(sources);
             setIsLoading(true);
           }
         });
@@ -199,13 +216,26 @@ export const VideoCard = ({ videoUrl, brand, description, isActive, shouldPreloa
 
     const handleError = (e: Event) => {
       try {
-        setIsLoading(false);
-        setHasError(true);
         const error = e.target as HTMLVideoElement;
         if (error && error.error) {
           console.error('Video error:', error.error);
         }
-        toast.error(`Failed to load video: ${brand}`);
+        
+        // If we have multiple sources and one fails, the browser will try the next one
+        // Only show error if all sources have failed
+        if (video && video.networkState === HTMLMediaElement.NETWORK_NO_SOURCE) {
+          setIsLoading(false);
+          setHasError(true);
+          toast.error(`Failed to load video: ${brand}`);
+        } else {
+          // Browser is trying alternative sources, wait a bit
+          setTimeout(() => {
+            if (video && video.readyState === 0 && video.networkState === HTMLMediaElement.NETWORK_NO_SOURCE) {
+              setIsLoading(false);
+              setHasError(true);
+            }
+          }, 2000);
+        }
       } catch (error) {
         console.warn('Error handler failed (non-critical):', error);
       }
@@ -446,9 +476,14 @@ export const VideoCard = ({ videoUrl, brand, description, isActive, shouldPreloa
     setHasError(false);
     setIsLoading(true);
     setVideoSrc("");
+    setVideoSources([]);
     // Trigger reload immediately using requestAnimationFrame
     requestAnimationFrame(() => {
-      setVideoSrc(videoUrl);
+      const optimalUrl = getOptimalVideoUrl(videoUrl);
+      const sources = getVideoSources(videoUrl);
+      
+      setVideoSrc(optimalUrl);
+      setVideoSources(sources);
       if (videoRef.current) {
         videoRef.current.load();
       }
@@ -481,17 +516,30 @@ export const VideoCard = ({ videoUrl, brand, description, isActive, shouldPreloa
       
       <video
         ref={videoRef}
-        src={videoSrc || undefined}
+        src={videoSources.length === 0 ? (videoSrc || undefined) : undefined}
         loop
         muted={isMuted}
         playsInline
-        preload={isActive ? "metadata" : "none"}
+        preload={isActive ? (isMobileDevice() ? "none" : "metadata") : "none"}
         className={`w-full h-full object-contain md:object-cover transition-opacity duration-200 ${isLoading && showLoadingSpinner ? 'opacity-0' : 'opacity-100'}`}
         webkit-playsinline="true"
         x-webkit-airplay="allow"
         disablePictureInPicture
         controlsList="nodownload nofullscreen noremoteplayback"
-      />
+      >
+        {/* Adaptive video sources for mobile devices - browser will select best option */}
+        {videoSources.length > 0 && isMobileDevice() && videoSources.map((source, index) => (
+          <source
+            key={`${source.src}-${index}`}
+            src={source.src}
+            type={source.type}
+          />
+        ))}
+        {/* Fallback for desktop or when no sources available */}
+        {videoSources.length === 0 && videoSrc && (
+          <source src={videoSrc} type="video/mp4" />
+        )}
+      </video>
       
       {/* Gradient overlay - hidden on mobile */}
       <div className="absolute inset-0 bg-gradient-overlay pointer-events-none hidden md:block" />
