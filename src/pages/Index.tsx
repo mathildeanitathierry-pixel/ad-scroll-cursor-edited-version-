@@ -28,17 +28,25 @@ const Index = () => {
     setVideoList(mockVideoAds);
   }, []);
 
-  // Optimized preloading strategy - only preload first video, others load on demand
+  // Optimized preloading strategy - more aggressive for first videos
   useEffect(() => {
     if (videoList.length === 0) return;
 
-    // Only preload the first video immediately (the one user will see first)
-    // Other videos will load when they become active (using preload="none" strategy)
-    setLoadedVideos(prev => new Set([...prev, 0]));
-
-    // Hide initial loading after shorter timeout for mobile (iOS is slower)
     const isMobile = isMobileDevice();
-    const timeout = isMobile ? 1500 : 2000;
+    
+    // On mobile, be more aggressive with first 2 videos for smoother scrolling
+    if (isMobile) {
+      // Preload first video immediately
+      setLoadedVideos(prev => new Set([...prev, 0]));
+      // Also preload second video for smoother scrolling
+      setLoadedVideos(prev => new Set([...prev, 0, 1]));
+    } else {
+      // Desktop: preload first video
+      setLoadedVideos(prev => new Set([...prev, 0]));
+    }
+
+    // Shorter timeout for mobile
+    const timeout = isMobile ? 1000 : 2000;
     const timer = setTimeout(() => {
       setIsInitialLoading(false);
     }, timeout);
@@ -52,8 +60,9 @@ const Index = () => {
     if (videoList.length === 0) return;
 
     const isMobile = isMobileDevice();
-    // On mobile, only preload next 1 video. On desktop, preload next 2
-    const preloadCount = isMobile ? 1 : 2;
+    // On mobile, preload next 2 videos for smoother experience
+    // On desktop, preload next 2 videos
+    const preloadCount = isMobile ? 2 : 2;
     
     const videosToPreload = [
       currentVideoIndex,

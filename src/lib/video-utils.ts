@@ -41,19 +41,28 @@ export function isAndroid(): boolean {
 
 /**
  * Detects network connection quality
+ * Improved detection for better mobile performance
  */
 export function getNetworkQuality(): 'slow' | 'fast' {
   if (typeof navigator === 'undefined' || !('connection' in navigator)) {
     return 'fast';
   }
   
-  const connection = (navigator as any).connection || (navigator as any).mozConnection || (navigator as any).webkitConnection;
+  const connection = (navigator as any).connection || 
+                    (navigator as any).mozConnection || 
+                    (navigator as any).webkitConnection;
   
   if (!connection) return 'fast';
   
   // Check effective type (4G, 3G, 2G, slow-2g)
   const effectiveType = connection.effectiveType;
-  if (effectiveType === 'slow-2g' || effectiveType === '2g' || effectiveType === '3g') {
+  if (effectiveType === 'slow-2g' || effectiveType === '2g') {
+    return 'slow';
+  }
+  
+  // Check if on cellular connection
+  const isCellular = connection.type === 'cellular';
+  if (isCellular && (effectiveType === '3g' || connection.downlink < 1.5)) {
     return 'slow';
   }
   

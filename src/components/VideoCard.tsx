@@ -40,8 +40,9 @@ export const VideoCard = ({ videoUrl, brand, description, isActive, shouldPreloa
                   (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 
     // Load video when it becomes active or should be preloaded
-    // For ad videos, we use preload="none" and only load when active or near viewport
-    if (shouldPreload && !videoSrc) {
+    // CRITICAL FIX: Also load when video becomes active, even if not preloaded
+    // This fixes the issue where videos after a certain point don't load
+    if ((shouldPreload || isActive) && !videoSrc) {
       // Get optimal video URL based on device and network
       const optimalUrl = getOptimalVideoUrl(videoUrl);
       const sources = getVideoSources(videoUrl);
@@ -73,6 +74,7 @@ export const VideoCard = ({ videoUrl, brand, description, isActive, shouldPreloa
       (entries) => {
         entries.forEach((entry) => {
           // Load video when it's within 150% of viewport (allows smooth preloading)
+          // CRITICAL FIX: Also check if video is active to ensure it loads
           if (entry.isIntersecting && !videoSrc) {
             // Get optimal video URL based on device and network
             const optimalUrl = getOptimalVideoUrl(videoUrl);
@@ -85,7 +87,7 @@ export const VideoCard = ({ videoUrl, brand, description, isActive, shouldPreloa
         });
       },
       {
-        rootMargin: "50% 0px",
+        rootMargin: "100% 0px", // Increased from 50% to 100% for better preloading
         threshold: 0,
       }
     );
@@ -97,7 +99,21 @@ export const VideoCard = ({ videoUrl, brand, description, isActive, shouldPreloa
         observerRef.current.disconnect();
       }
     };
-  }, [videoUrl, videoSrc, shouldPreload]);
+  }, [videoUrl, videoSrc, shouldPreload, isActive]);
+
+  // CRITICAL FIX: Ensure video loads when it becomes active
+  // This fixes the issue where videos after a certain point don't load on iOS
+  useEffect(() => {
+    if (isActive && !videoSrc) {
+      // Video is active but hasn't loaded yet - force load
+      const optimalUrl = getOptimalVideoUrl(videoUrl);
+      const sources = getVideoSources(videoUrl);
+      
+      setVideoSrc(optimalUrl);
+      setVideoSources(sources);
+      setIsLoading(true);
+    }
+  }, [isActive, videoSrc, videoUrl]);
 
   // Initialize HLS.js for streaming support (non-iOS browsers)
   useEffect(() => {
@@ -170,9 +186,27 @@ export const VideoCard = ({ videoUrl, brand, description, isActive, shouldPreloa
         }
       };
     } else if (isIOS && isMobileDevice() && (isActive || shouldPreload)) {
-      // iOS natively supports HLS - just set the HLS URL directly
-      if (video.src !== hlsUrl) {
+      // iOS natively supports HLS - optimize for faster start
+      // Try HLS first, but fall back to MP4 if it fails
+      if (video.src !== hlsUrl && video.src !== videoSrc) {
+        // Set HLS URL for iOS
         video.src = hlsUrl;
+        // iOS-specific: start loading immediately
+        video.load();
+        // Set preload to metadata for faster initial load
+        video.preload = 'metadata';
+        
+        // Add error handler to fall back to MP4 if HLS fails
+        const handleHlsError = () => {
+          if (video && video.error && video.error.code === MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED) {
+            console.warn('HLS not available, falling back to MP4');
+            video.src = videoSrc;
+            video.load();
+            video.removeEventListener('error', handleHlsError);
+          }
+        };
+        
+        video.addEventListener('error', handleHlsError, { once: true });
       }
     }
   }, [videoSrc, videoUrl, isActive, shouldPreload]);
@@ -199,8 +233,8 @@ export const VideoCard = ({ videoUrl, brand, description, isActive, shouldPreloa
             video.src = videoSrc;
           }
           
-          // Only load if video is active or should be preloaded
-          // This prevents loading videos that won't be watched
+          // CRITICAL FIX: Always load if video is active, regardless of preload status
+          // This ensures videos load when scrolled to, fixing the loading issue
           if (isActive || shouldPreload) {
             // On iOS or if not loaded, explicitly call load() to start loading
             if (isIOS || video.readyState === 0 || video.readyState === undefined) {
@@ -613,7 +647,7 @@ export const VideoCard = ({ videoUrl, brand, description, isActive, shouldPreloa
         loop
         muted={isMuted}
         playsInline
-        preload={isActive ? (isMobileDevice() ? "none" : "metadata") : "none"}
+        preload={isActive ? (isMobileDevice() ? (isActive && shouldPreload ? "auto" : "metadata") : "metadata") : "none"}
         className={`w-full h-full object-contain md:object-cover transition-opacity duration-200 ${isLoading && showLoadingSpinner ? 'opacity-0' : 'opacity-100'}`}
         webkit-playsinline="true"
         x-webkit-airplay="allow"

@@ -59,7 +59,7 @@ for video in "${videos[@]}"; do
     if ffmpeg -i "$video" \
         -c:v libx264 \
         -c:a aac \
-        -hls_time 10 \
+        -hls_time 6 \
         -hls_playlist_type vod \
         -hls_segment_filename "$output_dir/segment_%03d.ts" \
         "$output_dir/playlist.m3u8" \
