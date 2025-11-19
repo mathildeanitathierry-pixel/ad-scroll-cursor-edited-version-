@@ -122,15 +122,63 @@ export function getOptimalVideoUrl(originalUrl: string): string {
 }
 
 /**
+ * Converts MP4 URL to HLS playlist URL
+ * Supports two formats:
+ * 1. Same directory: video.mp4 -> video.m3u8
+ * 2. Subdirectory: video.mp4 -> hls/video/playlist.m3u8
+ */
+export function getHlsUrl(mp4Url: string): string {
+  // Try subdirectory format first (hls/video_name/playlist.m3u8)
+  const baseName = mp4Url.replace('.mp4', '').replace('/videos/', '');
+  const subdirUrl = `/videos/hls/${baseName}/playlist.m3u8`;
+  
+  // Fallback to same directory format (video.m3u8)
+  const sameDirUrl = mp4Url.replace('.mp4', '.m3u8');
+  
+  // Return subdirectory format (more common for HLS)
+  // Browser will automatically fall back if file doesn't exist
+  return subdirUrl;
+}
+
+/**
+ * Checks if HLS streaming is supported by the browser
+ */
+export function isHlsSupported(): boolean {
+  if (typeof window === 'undefined') return false;
+  
+  const video = document.createElement('video');
+  
+  // iOS Safari natively supports HLS
+  if (isIOS()) {
+    return video.canPlayType('application/vnd.apple.mpegurl') !== '';
+  }
+  
+  // For other browsers, we'll use HLS.js
+  return typeof (window as any).Hls !== 'undefined' || 
+         typeof (window as any).hlsjs !== 'undefined';
+}
+
+/**
  * Creates video source elements for adaptive loading
  * Returns an array of source objects for use in <video><source> tags
  * Browser will try sources in order and use the first one that works
+ * Now includes HLS streaming support for better mobile performance
  */
 export function getVideoSources(baseUrl: string): Array<{ src: string; type: string; media?: string }> {
   const mobile = isMobileDevice();
   const networkQuality = getNetworkQuality();
+  const hlsSupported = isHlsSupported();
   
   const sources: Array<{ src: string; type: string; media?: string }> = [];
+  
+  // Prefer HLS streaming on mobile for adaptive bitrate
+  if (mobile && hlsSupported) {
+    const hlsUrl = getHlsUrl(baseUrl);
+    sources.push({
+      src: hlsUrl,
+      type: 'application/vnd.apple.mpegurl', // HLS MIME type
+    });
+  }
   
   if (mobile) {
     // For mobile, prefer lower resolutions for faster loading

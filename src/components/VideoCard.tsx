@@ -2,7 +2,8 @@ import { useState, useRef, useEffect } from "react";
 import { Share2, Volume2, VolumeX } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
-import { isMobileDevice, getOptimalVideoUrl, getVideoSources } from "@/lib/video-utils";
+import { isMobileDevice, getOptimalVideoUrl, getVideoSources, getHlsUrl, isHlsSupported } from "@/lib/video-utils";
+import Hls from "hls.js";
 
 interface VideoCardProps {
   videoUrl: string;
@@ -27,6 +28,7 @@ export const VideoCard = ({ videoUrl, brand, description, isActive, shouldPreloa
   const hasAwardedPointRef = useRef(false);
   const watchTimerRef = useRef<NodeJS.Timeout>();
   const observerRef = useRef<IntersectionObserver | null>(null);
+  const hlsRef = useRef<Hls | null>(null);
 
   // Load video immediately if shouldPreload is true, otherwise use IntersectionObserver
   useEffect(() => {
@@ -97,10 +99,91 @@ export const VideoCard = ({ videoUrl, brand, description, isActive, shouldPreloa
     };
   }, [videoUrl, videoSrc, shouldPreload]);
 
+  // Initialize HLS.js for streaming support (non-iOS browsers)
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video || !videoSrc) return;
+    
+    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || 
+                  (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    
+    // Check if we should use HLS streaming
+    const shouldUseHls = isMobileDevice() && !isIOS && Hls.isSupported();
+    const hlsUrl = getHlsUrl(videoUrl);
+    
+    if (shouldUseHls && (isActive || shouldPreload)) {
+      // Clean up existing HLS instance
+      if (hlsRef.current) {
+        hlsRef.current.destroy();
+        hlsRef.current = null;
+      }
+      
+      // Initialize HLS.js
+      const hls = new Hls({
+        enableWorker: true,
+        lowLatencyMode: false,
+        backBufferLength: 90,
+        maxBufferLength: 30,
+        maxMaxBufferLength: 60,
+        startLevel: -1, // Auto-select starting quality
+        capLevelToPlayerSize: true, // Cap quality to player size
+        debug: false,
+      });
+      
+      hlsRef.current = hls;
+      
+      // Load HLS source
+      hls.loadSource(hlsUrl);
+      hls.attachMedia(video);
+      
+      // Handle HLS errors
+      hls.on(Hls.Events.ERROR, (event, data) => {
+        if (data.fatal) {
+          switch (data.type) {
+            case Hls.ErrorTypes.NETWORK_ERROR:
+              console.warn('HLS network error, trying to recover...');
+              hls.startLoad();
+              break;
+            case Hls.ErrorTypes.MEDIA_ERROR:
+              console.warn('HLS media error, trying to recover...');
+              hls.recoverMediaError();
+              break;
+            default:
+              console.warn('HLS fatal error, destroying HLS instance');
+              hls.destroy();
+              hlsRef.current = null;
+              // Fall back to regular MP4
+              if (video && videoRef.current) {
+                video.src = videoSrc;
+                video.load();
+              }
+              break;
+          }
+        }
+      });
+      
+      // Cleanup on unmount
+      return () => {
+        if (hlsRef.current) {
+          hlsRef.current.destroy();
+          hlsRef.current = null;
+        }
+      };
+    } else if (isIOS && isMobileDevice() && (isActive || shouldPreload)) {
+      // iOS natively supports HLS - just set the HLS URL directly
+      if (video.src !== hlsUrl) {
+        video.src = hlsUrl;
+      }
+    }
+  }, [videoSrc, videoUrl, isActive, shouldPreload]);
+
   // Handle video loading events - iOS optimized with crash prevention
   useEffect(() => {
     const video = videoRef.current;
     if (!video || !videoSrc) return;
+    
+    // Skip if HLS is being used (handled in HLS effect)
+    if (hlsRef.current) return;
     
     // Detect iOS
     const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || 
@@ -282,6 +365,16 @@ export const VideoCard = ({ videoUrl, brand, description, isActive, shouldPreloa
       }
     };
   }, [videoSrc, brand, onLoaded, hasLoadedOnce, shouldPreload, isActive]);
+
+  // Cleanup HLS on unmount
+  useEffect(() => {
+    return () => {
+      if (hlsRef.current) {
+        hlsRef.current.destroy();
+        hlsRef.current = null;
+      }
+    };
+  }, []);
 
   // Wait for video to be ready before playing - iOS optimized with crash prevention
   useEffect(() => {
@@ -516,7 +609,7 @@ export const VideoCard = ({ videoUrl, brand, description, isActive, shouldPreloa
       
       <video
         ref={videoRef}
-        src={videoSources.length === 0 ? (videoSrc || undefined) : undefined}
+        src={hlsRef.current ? undefined : (videoSources.length === 0 ? (videoSrc || undefined) : undefined)}
         loop
         muted={isMuted}
         playsInline
@@ -527,8 +620,12 @@ export const VideoCard = ({ videoUrl, brand, description, isActive, shouldPreloa
         disablePictureInPicture
         controlsList="nodownload nofullscreen noremoteplayback"
       >
+        {/* HLS streaming source for iOS (native support) */}
+        {isMobileDevice() && !hlsRef.current && isHlsSupported() && (
+          <source src={getHlsUrl(videoUrl)} type="application/vnd.apple.mpegurl" />
+        )}
         {/* Adaptive video sources for mobile devices - browser will select best option */}
-        {videoSources.length > 0 && isMobileDevice() && videoSources.map((source, index) => (
+        {!hlsRef.current && videoSources.length > 0 && isMobileDevice() && videoSources.map((source, index) => (
           <source
             key={`${source.src}-${index}`}
             src={source.src}
@@ -536,7 +633,7 @@ export const VideoCard = ({ videoUrl, brand, description, isActive, shouldPreloa
           />
         ))}
         {/* Fallback for desktop or when no sources available */}
-        {videoSources.length === 0 && videoSrc && (
+        {!hlsRef.current && videoSources.length === 0 && videoSrc && (
           <source src={videoSrc} type="video/mp4" />
         )}
       </video>
