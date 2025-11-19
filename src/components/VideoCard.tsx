@@ -54,17 +54,8 @@ export const VideoCard = ({ videoUrl, brand, description, isActive, shouldPreloa
       setVideoSources(sources);
       setIsLoading(true);
       
-      // On mobile, also set src directly on video element immediately
-      if (isMobile && videoRef.current && optimalUrl) {
-        requestAnimationFrame(() => {
-          const video = videoRef.current;
-          if (video && optimalUrl) {
-            console.log(`[VideoCard] MOBILE: Directly setting video.src for ${brand}`);
-            video.src = optimalUrl;
-            video.load();
-          }
-        });
-      }
+      // Don't set video.src directly on mobile - let <source> tags handle it
+      // Setting video.src directly conflicts with <source> tags on iOS
       
       // Don't return early - continue to set up IntersectionObserver as fallback
     }
@@ -137,25 +128,8 @@ export const VideoCard = ({ videoUrl, brand, description, isActive, shouldPreloa
       setVideoSources(sources);
       setIsLoading(true);
       
-      // On mobile/iOS, also directly set the video src immediately
-      if ((isMobile || isIOS) && videoRef.current) {
-        requestAnimationFrame(() => {
-          const video = videoRef.current;
-          if (video && optimalUrl) {
-            video.src = optimalUrl;
-            video.load();
-          }
-        });
-      }
-    } else if (isMobile && videoRef.current && videoSrc) {
-      // On mobile, ensure video element has src set even if state is set
-      const video = videoRef.current;
-      if (video.src !== videoSrc) {
-        console.log(`[VideoCard] MOBILE: Setting video src directly for ${brand}`);
-        video.src = videoSrc;
-        video.load();
-      }
-    }
+      // Don't set video.src directly - let React and <source> tags handle it
+      // This prevents conflicts on iOS where <source> tags are preferred
   }, [isActive, videoSrc, videoUrl, brand]);
 
   // Initialize HLS.js for streaming support (non-iOS browsers)
@@ -271,48 +245,63 @@ export const VideoCard = ({ videoUrl, brand, description, isActive, shouldPreloa
     if (videoSrc) {
       try {
         if (video) {
-          // Ensure src is set first (critical for loading)
-          if (video.src !== videoSrc) {
+          // CRITICAL FIX: Always load if video is active, regardless of preload status
+          // This ensures videos load when scrolled to, fixing the loading issue
+          // IMPORTANT: On iOS, don't set video.src directly when using <source> tags
+          const isMobile = isMobileDevice();
+          
+          // Only set video.src directly if we have no <source> tags (desktop fallback)
+          if (videoSources.length === 0 && !isIOS && video.src !== videoSrc && videoSrc) {
             video.src = videoSrc;
           }
           
-          // CRITICAL FIX: Always load if video is active, regardless of preload status
-          // This ensures videos load when scrolled to, fixing the loading issue
-          // ESPECIALLY important on mobile where iOS limits concurrent video loads
-          const isMobile = isMobileDevice();
           if (isActive || shouldPreload) {
-            // On mobile/iOS, be more aggressive about loading
-            if (isMobile || isIOS || video.readyState === 0 || video.readyState === undefined) {
-              // Use requestAnimationFrame for immediate execution
+            // On iOS, just call load() - don't set src directly (let <source> tags handle it)
+            if (isIOS) {
+              if (video.readyState === 0 || video.readyState === undefined) {
+                requestAnimationFrame(() => {
+                  if (video && videoRef.current) {
+                    video.load();
+                  }
+                });
+              }
+            } else if (isMobile || video.readyState === 0 || video.readyState === undefined) {
+              // For non-iOS mobile, can set src directly if no <source> tags
               requestAnimationFrame(() => {
-                if (video && videoRef.current) {
-                  // Ensure src is set before loading - CRITICAL for mobile
+                if (video && videoRef.current && videoSources.length === 0) {
                   if (video.src !== videoSrc && videoSrc) {
-                    console.log(`[VideoCard] MOBILE: Setting src and loading for ${brand}`);
                     video.src = videoSrc;
                   }
-                  // Always call load() on mobile when active
-                  if (isActive && isMobile) {
-                    video.load();
-                  } else if (video.src === videoSrc || videoSrc) {
-                    video.load();
-                  }
+                  video.load();
+                } else if (video && videoRef.current) {
+                  // If we have <source> tags, just call load()
+                  video.load();
                 }
               });
             } else {
-              // Even if readyState > 0, ensure src is set and try to load
-              if (video.src !== videoSrc && videoSrc) {
+              // Desktop or already loaded - just ensure it's loaded
+              if (videoSources.length === 0 && video.src !== videoSrc && videoSrc) {
                 video.src = videoSrc;
+                video.load();
+              } else {
                 video.load();
               }
             }
-          } else if (isActive && isMobile && videoSrc) {
-            // MOBILE FIX: If video is active on mobile but wasn't preloaded, load it now
-            console.log(`[VideoCard] MOBILE: Late loading active video for ${brand}`);
-            if (video.src !== videoSrc) {
-              video.src = videoSrc;
+          } else if (isActive && videoSrc) {
+            // If video is active but wasn't preloaded, load it now
+            if (isIOS) {
+              // iOS: just call load(), <source> tags will handle src
+              video.load();
+            } else if (videoSources.length === 0) {
+              // Non-iOS: can set src if no <source> tags
+              if (video.src !== videoSrc) {
+                video.src = videoSrc;
+              }
+              video.load();
+            } else {
+              // Has <source> tags, just call load()
+              video.load();
             }
-            video.load();
           }
         }
       } catch (error) {
