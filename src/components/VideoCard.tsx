@@ -104,18 +104,50 @@ export const VideoCard = ({ videoUrl, brand, description, isActive, shouldPreloa
     };
   }, [videoUrl, videoSrc, shouldPreload, isActive]);
 
-  // CRITICAL FIX: Ensure video loads when it becomes active
+  // CRITICAL FIX: Ensure video loads when it becomes active (ESPECIALLY ON MOBILE)
   // This fixes the issue where videos after a certain point don't load on iOS
   useEffect(() => {
-    if (isActive && !videoSrc) {
-      // Video is active but hasn't loaded yet - force load immediately
-      console.log(`[VideoCard] Force loading video for ${brand} (active but no src)`);
-      const optimalUrl = getOptimalVideoUrl(videoUrl);
-      const sources = getVideoSources(videoUrl);
-      
-      setVideoSrc(optimalUrl);
-      setVideoSources(sources);
-      setIsLoading(true);
+    const isMobile = isMobileDevice();
+    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || 
+                  (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    
+    if (isActive) {
+      // On mobile, be VERY aggressive about loading when active
+      if (isMobile && !videoSrc) {
+        console.log(`[VideoCard] MOBILE: Force loading video for ${brand} (active but no src)`);
+        const optimalUrl = getOptimalVideoUrl(videoUrl);
+        const sources = getVideoSources(videoUrl);
+        
+        setVideoSrc(optimalUrl);
+        setVideoSources(sources);
+        setIsLoading(true);
+        
+        // On iOS, also directly set the video src immediately
+        if (isIOS && videoRef.current) {
+          requestAnimationFrame(() => {
+            const video = videoRef.current;
+            if (video && optimalUrl) {
+              video.src = optimalUrl;
+              video.load();
+            }
+          });
+        }
+      } else if (!videoSrc) {
+        // Desktop fallback
+        const optimalUrl = getOptimalVideoUrl(videoUrl);
+        const sources = getVideoSources(videoUrl);
+        setVideoSrc(optimalUrl);
+        setVideoSources(sources);
+        setIsLoading(true);
+      } else if (isMobile && videoRef.current && videoSrc) {
+        // On mobile, ensure video element has src set even if state is set
+        const video = videoRef.current;
+        if (video.src !== videoSrc) {
+          console.log(`[VideoCard] MOBILE: Setting video src directly for ${brand}`);
+          video.src = videoSrc;
+          video.load();
+        }
+      }
     }
   }, [isActive, videoSrc, videoUrl, brand]);
 
@@ -239,17 +271,23 @@ export const VideoCard = ({ videoUrl, brand, description, isActive, shouldPreloa
           
           // CRITICAL FIX: Always load if video is active, regardless of preload status
           // This ensures videos load when scrolled to, fixing the loading issue
+          // ESPECIALLY important on mobile where iOS limits concurrent video loads
+          const isMobile = isMobileDevice();
           if (isActive || shouldPreload) {
-            // On iOS or if not loaded, explicitly call load() to start loading
-            if (isIOS || video.readyState === 0 || video.readyState === undefined) {
+            // On mobile/iOS, be more aggressive about loading
+            if (isMobile || isIOS || video.readyState === 0 || video.readyState === undefined) {
               // Use requestAnimationFrame for immediate execution
               requestAnimationFrame(() => {
                 if (video && videoRef.current) {
-                  // Ensure src is set before loading
+                  // Ensure src is set before loading - CRITICAL for mobile
                   if (video.src !== videoSrc && videoSrc) {
+                    console.log(`[VideoCard] MOBILE: Setting src and loading for ${brand}`);
                     video.src = videoSrc;
                   }
-                  if (video.src === videoSrc || videoSrc) {
+                  // Always call load() on mobile when active
+                  if (isActive && isMobile) {
+                    video.load();
+                  } else if (video.src === videoSrc || videoSrc) {
                     video.load();
                   }
                 }
@@ -261,6 +299,13 @@ export const VideoCard = ({ videoUrl, brand, description, isActive, shouldPreloa
                 video.load();
               }
             }
+          } else if (isActive && isMobile && videoSrc) {
+            // MOBILE FIX: If video is active on mobile but wasn't preloaded, load it now
+            console.log(`[VideoCard] MOBILE: Late loading active video for ${brand}`);
+            if (video.src !== videoSrc) {
+              video.src = videoSrc;
+            }
+            video.load();
           }
         }
       } catch (error) {
@@ -429,22 +474,32 @@ export const VideoCard = ({ videoUrl, brand, description, isActive, shouldPreloa
   // Wait for video to be ready before playing - iOS optimized with crash prevention
   useEffect(() => {
     const video = videoRef.current;
+    const isMobile = isMobileDevice();
+    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || 
+                  (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    
     if (!video || !videoSrc) {
-      // If video is active but no src, try to load it
+      // If video is active but no src, try to load it (ESPECIALLY on mobile)
       if (isActive && !videoSrc) {
-        console.log(`[VideoCard] Video active but no src for ${brand}, triggering load`);
+        console.log(`[VideoCard] ${isMobile ? 'MOBILE: ' : ''}Video active but no src for ${brand}, triggering load`);
         const optimalUrl = getOptimalVideoUrl(videoUrl);
         const sources = getVideoSources(videoUrl);
         setVideoSrc(optimalUrl);
         setVideoSources(sources);
         setIsLoading(true);
+        
+        // On mobile, also set src directly on video element immediately
+        if (isMobile && video && optimalUrl) {
+          requestAnimationFrame(() => {
+            if (video && videoRef.current) {
+              video.src = optimalUrl;
+              video.load();
+            }
+          });
+        }
       }
       return;
     }
-
-    // Detect iOS
-    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || 
-                  (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 
     if (isActive) {
       hasAwardedPointRef.current = false;
