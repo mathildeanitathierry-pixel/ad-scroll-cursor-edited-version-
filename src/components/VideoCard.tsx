@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import { Share2, Volume2, VolumeX } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
-import { isMobileDevice, getOptimalVideoUrl, getVideoSources, getHlsUrl, isHlsSupported } from "@/lib/video-utils";
+import { isMobileDevice, getOptimalVideoUrl, getVideoSources, getHlsUrl, isHlsSupported, isIOS } from "@/lib/video-utils";
 import Hls from "hls.js";
 
 interface VideoCardProps {
@@ -35,29 +35,15 @@ export const VideoCard = ({ videoUrl, brand, description, isActive, shouldPreloa
     const container = containerRef.current;
     if (!container) return;
 
-    // Detect iOS for special handling
-    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || 
-                  (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-
     // Load video when it becomes active or should be preloaded
-    // CRITICAL FIX: Also load when video becomes active, even if not preloaded
-    // This fixes the issue where videos after a certain point don't load
-    // ESPECIALLY important on mobile where iOS limits concurrent video loads
     if ((shouldPreload || isActive) && !videoSrc) {
       // Get optimal video URL based on device and network
       const optimalUrl = getOptimalVideoUrl(videoUrl);
       const sources = getVideoSources(videoUrl);
       
-      const isMobile = isMobileDevice();
-      console.log(`[VideoCard] ${isMobile ? 'MOBILE: ' : ''}Loading video for ${brand} (isActive: ${isActive}, shouldPreload: ${shouldPreload})`);
       setVideoSrc(optimalUrl);
       setVideoSources(sources);
       setIsLoading(true);
-      
-      // Don't set video.src directly on mobile - let <source> tags handle it
-      // Setting video.src directly conflicts with <source> tags on iOS
-      
-      // Don't return early - continue to set up IntersectionObserver as fallback
     }
 
     // For videos that shouldn't preload, use IntersectionObserver for lazy loading
@@ -74,28 +60,32 @@ export const VideoCard = ({ videoUrl, brand, description, isActive, shouldPreloa
       setVideoSrc(optimalUrl);
       setVideoSources(sources);
       setIsLoading(true);
-      return;
     }
 
+    // Create IntersectionObserver - use functional setState to avoid stale closures
     observerRef.current = new IntersectionObserver(
       (entries) => {
         entries.forEach((entry) => {
-          // Load video when it's within 150% of viewport (allows smooth preloading)
-          // CRITICAL FIX: Also check if video is active to ensure it loads
-          if (entry.isIntersecting && !videoSrc) {
-            // Get optimal video URL based on device and network
-            const optimalUrl = getOptimalVideoUrl(videoUrl);
-            const sources = getVideoSources(videoUrl);
-            
-            console.log(`[VideoCard] IntersectionObserver triggered for ${brand}`);
-            setVideoSrc(optimalUrl);
-            setVideoSources(sources);
-            setIsLoading(true);
+          if (entry.isIntersecting) {
+            // Use functional setState to check current state and avoid stale closure
+            setVideoSrc(prev => {
+              if (prev) return prev; // Already loaded
+              
+              // Get optimal video URL based on device and network
+              const optimalUrl = getOptimalVideoUrl(videoUrl);
+              const sources = getVideoSources(videoUrl);
+              
+              // Set sources and loading state
+              setVideoSources(sources);
+              setIsLoading(true);
+              
+              return optimalUrl;
+            });
           }
         });
       },
       {
-        rootMargin: "200% 0px", // Increased even more for aggressive preloading
+        rootMargin: "200% 0px",
         threshold: 0,
       }
     );
@@ -105,43 +95,48 @@ export const VideoCard = ({ videoUrl, brand, description, isActive, shouldPreloa
     return () => {
       if (observerRef.current) {
         observerRef.current.disconnect();
+        observerRef.current = null;
       }
     };
-  }, [videoUrl, videoSrc, shouldPreload, isActive]);
+  }, [videoUrl, shouldPreload, isActive]); // Removed videoSrc from deps to avoid recreating observer
 
   // CRITICAL FIX: Ensure video loads when it becomes active (ESPECIALLY ON MOBILE)
   // This fixes the issue where videos after a certain point don't load on iOS
   useEffect(() => {
     if (!isActive) return;
     
-    const isMobile = isMobileDevice();
-    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || 
-                  (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-    
     // If video is active but has no src, load it immediately
     if (!videoSrc) {
       const optimalUrl = getOptimalVideoUrl(videoUrl);
       const sources = getVideoSources(videoUrl);
       
-      console.log(`[VideoCard] ${isMobile ? 'MOBILE: ' : ''}Force loading active video for ${brand}`);
       setVideoSrc(optimalUrl);
       setVideoSources(sources);
       setIsLoading(true);
-      
-      // Don't set video.src directly - let React and <source> tags handle it
-      // This prevents conflicts on iOS where <source> tags are preferred
-  }, [isActive, videoSrc, videoUrl, brand]);
+    }
+    
+    // CRITICAL: Even if videoSrc is already set, ensure video element loads when active
+    // This fixes cases where videoSrc was set but video didn't actually load
+    const video = videoRef.current;
+    if (video && videoSrc && (video.readyState === 0 || video.readyState === undefined)) {
+      // Force video to load if it hasn't started loading yet
+      requestAnimationFrame(() => {
+        if (video && videoRef.current) {
+          video.load();
+        }
+      });
+    }
+  }, [isActive, videoSrc, videoUrl]);
 
   // Initialize HLS.js for streaming support (non-iOS browsers)
   useEffect(() => {
     const video = videoRef.current;
     if (!video || !videoSrc) return;
     
-    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || 
-                  (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    const isIOSDevice = isIOS();
     
     // Check if we should use HLS streaming
-    const shouldUseHls = isMobileDevice() && !isIOS && Hls.isSupported();
+    const shouldUseHls = isMobileDevice() && !isIOSDevice && Hls.isSupported();
     const hlsUrl = getHlsUrl(videoUrl);
     
     if (shouldUseHls && (isActive || shouldPreload)) {
@@ -186,7 +181,7 @@ export const VideoCard = ({ videoUrl, brand, description, isActive, shouldPreloa
               hls.destroy();
               hlsRef.current = null;
               // Fall back to regular MP4
-              if (video && videoRef.current) {
+              if (video) {
                 video.src = videoSrc;
                 video.load();
               }
@@ -202,7 +197,7 @@ export const VideoCard = ({ videoUrl, brand, description, isActive, shouldPreloa
           hlsRef.current = null;
         }
       };
-    } else if (isIOS && isMobileDevice() && (isActive || shouldPreload)) {
+    } else if (isIOSDevice && isMobileDevice() && (isActive || shouldPreload)) {
       // iOS natively supports HLS - optimize for faster start
       // Try HLS first, but fall back to MP4 if it fails
       if (video.src !== hlsUrl && video.src !== videoSrc) {
@@ -215,7 +210,8 @@ export const VideoCard = ({ videoUrl, brand, description, isActive, shouldPreloa
         
         // Add error handler to fall back to MP4 if HLS fails
         const handleHlsError = () => {
-          if (video && video.error && video.error.code === MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED) {
+          // MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED = 4
+          if (video && video.error && video.error.code === 4) {
             console.warn('HLS not available, falling back to MP4');
             video.src = videoSrc;
             video.load();
@@ -237,8 +233,7 @@ export const VideoCard = ({ videoUrl, brand, description, isActive, shouldPreloa
     if (hlsRef.current) return;
     
     // Detect iOS
-    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || 
-                  (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    const isIOSDevice = isIOS();
     
     // Load video only when active or when shouldPreload is true
     // For ad videos, we use preload="none" to save bandwidth until needed
@@ -251,30 +246,27 @@ export const VideoCard = ({ videoUrl, brand, description, isActive, shouldPreloa
           const isMobile = isMobileDevice();
           
           // Only set video.src directly if we have no <source> tags (desktop fallback)
-          if (videoSources.length === 0 && !isIOS && video.src !== videoSrc && videoSrc) {
+          if (videoSources.length === 0 && !isIOSDevice && video.src !== videoSrc && videoSrc) {
             video.src = videoSrc;
           }
           
+          // Always ensure video loads when active or should preload
           if (isActive || shouldPreload) {
             // On iOS, just call load() - don't set src directly (let <source> tags handle it)
-            if (isIOS) {
-              if (video.readyState === 0 || video.readyState === undefined) {
-                requestAnimationFrame(() => {
-                  if (video && videoRef.current) {
-                    video.load();
-                  }
-                });
-              }
+            if (isIOSDevice) {
+              // iOS: always call load() to ensure video starts loading
+              requestAnimationFrame(() => {
+                if (video && videoRef.current) {
+                  video.load();
+                }
+              });
             } else if (isMobile || video.readyState === 0 || video.readyState === undefined) {
               // For non-iOS mobile, can set src directly if no <source> tags
               requestAnimationFrame(() => {
-                if (video && videoRef.current && videoSources.length === 0) {
-                  if (video.src !== videoSrc && videoSrc) {
+                if (video && videoRef.current) {
+                  if (videoSources.length === 0 && video.src !== videoSrc && videoSrc) {
                     video.src = videoSrc;
                   }
-                  video.load();
-                } else if (video && videoRef.current) {
-                  // If we have <source> tags, just call load()
                   video.load();
                 }
               });
@@ -282,24 +274,7 @@ export const VideoCard = ({ videoUrl, brand, description, isActive, shouldPreloa
               // Desktop or already loaded - just ensure it's loaded
               if (videoSources.length === 0 && video.src !== videoSrc && videoSrc) {
                 video.src = videoSrc;
-                video.load();
-              } else {
-                video.load();
               }
-            }
-          } else if (isActive && videoSrc) {
-            // If video is active but wasn't preloaded, load it now
-            if (isIOS) {
-              // iOS: just call load(), <source> tags will handle src
-              video.load();
-            } else if (videoSources.length === 0) {
-              // Non-iOS: can set src if no <source> tags
-              if (video.src !== videoSrc) {
-                video.src = videoSrc;
-              }
-              video.load();
-            } else {
-              // Has <source> tags, just call load()
               video.load();
             }
           }
@@ -309,7 +284,7 @@ export const VideoCard = ({ videoUrl, brand, description, isActive, shouldPreloa
       }
       
       // For iOS, don't use aggressive buffering as it can cause issues
-      if (!isIOS) {
+      if (!isIOSDevice) {
         // Force video to buffer more by seeking ahead (desktop only)
         const forceBuffer = () => {
           try {
@@ -360,7 +335,7 @@ export const VideoCard = ({ videoUrl, brand, description, isActive, shouldPreloa
       try {
         if (video && videoRef.current && !hasLoadedOnce) {
           // For iOS, accept readyState >= 1 (just metadata is enough to show video)
-          const minReadyState = isIOS ? 1 : 2;
+          const minReadyState = isIOSDevice ? 1 : 2;
           if (video.readyState >= minReadyState) {
             setIsLoading(false);
             setHasError(false);
@@ -376,7 +351,7 @@ export const VideoCard = ({ videoUrl, brand, description, isActive, shouldPreloa
     // Also handle loadedmetadata for iOS (fires earlier) - optimized
     const handleLoadedMetadata = () => {
       try {
-        if (video && videoRef.current && isIOS && !hasLoadedOnce) {
+        if (video && videoRef.current && isIOSDevice && !hasLoadedOnce) {
           // On iOS, metadata is enough to consider video "loaded" for UI purposes
           setIsLoading(false);
           setHasError(false);
@@ -432,7 +407,7 @@ export const VideoCard = ({ videoUrl, brand, description, isActive, shouldPreloa
       video.addEventListener('canplaythrough', handleCanPlayThrough);
       video.addEventListener('loadeddata', handleLoadedData);
       video.addEventListener('error', handleError);
-      if (isIOS) {
+      if (isIOSDevice) {
         video.addEventListener('stalled', handleStalled);
         video.addEventListener('loadedmetadata', handleLoadedMetadata);
       }
@@ -446,7 +421,7 @@ export const VideoCard = ({ videoUrl, brand, description, isActive, shouldPreloa
           video.removeEventListener('canplaythrough', handleCanPlayThrough);
           video.removeEventListener('loadeddata', handleLoadedData);
           video.removeEventListener('error', handleError);
-          if (isIOS) {
+          if (isIOSDevice) {
             video.removeEventListener('stalled', handleStalled);
             video.removeEventListener('loadedmetadata', handleLoadedMetadata);
           }
@@ -471,30 +446,47 @@ export const VideoCard = ({ videoUrl, brand, description, isActive, shouldPreloa
   useEffect(() => {
     const video = videoRef.current;
     const isMobile = isMobileDevice();
-    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || 
-                  (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    const isIOSDevice = isIOS();
     
-    if (!video || !videoSrc) {
-      // If video is active but no src, try to load it (ESPECIALLY on mobile)
+    if (!video) {
+      // If video is active but no video element yet, ensure src is set
       if (isActive && !videoSrc) {
-        console.log(`[VideoCard] ${isMobile ? 'MOBILE: ' : ''}Video active but no src for ${brand}, triggering load`);
         const optimalUrl = getOptimalVideoUrl(videoUrl);
         const sources = getVideoSources(videoUrl);
         setVideoSrc(optimalUrl);
         setVideoSources(sources);
         setIsLoading(true);
-        
-        // On mobile, also set src directly on video element immediately
-        if (isMobile && video && optimalUrl) {
-          requestAnimationFrame(() => {
-            if (video && videoRef.current) {
-              video.src = optimalUrl;
-              video.load();
-            }
-          });
-        }
       }
       return;
+    }
+    
+    // If video element exists but no src, set it
+    if (!videoSrc && isActive) {
+      const optimalUrl = getOptimalVideoUrl(videoUrl);
+      const sources = getVideoSources(videoUrl);
+      setVideoSrc(optimalUrl);
+      setVideoSources(sources);
+      setIsLoading(true);
+      
+      // On mobile, also set src directly on video element immediately
+      if (isMobile && optimalUrl) {
+        requestAnimationFrame(() => {
+          if (video && videoRef.current) {
+            video.src = optimalUrl;
+            video.load();
+          }
+        });
+      }
+      return;
+    }
+    
+    // If videoSrc is set but video hasn't loaded, force it to load
+    if (videoSrc && isActive && (video.readyState === 0 || video.readyState === undefined)) {
+      requestAnimationFrame(() => {
+        if (video && videoRef.current) {
+          video.load();
+        }
+      });
     }
 
     if (isActive) {
@@ -521,7 +513,7 @@ export const VideoCard = ({ videoUrl, brand, description, isActive, shouldPreloa
         try {
           // For iOS, be less strict - just need some data loaded (readyState >= 1)
           // iOS Safari often doesn't reach readyState 3 until user interaction
-          const minReadyState = isIOS ? 1 : 2; // iOS just needs metadata
+          const minReadyState = isIOSDevice ? 1 : 2; // iOS just needs metadata
           
           // Check if video has valid readyState
           if (video.readyState === undefined || isNaN(video.readyState)) {
@@ -539,7 +531,7 @@ export const VideoCard = ({ videoUrl, brand, description, isActive, shouldPreloa
                 video.removeEventListener('loadeddata', onLoadedData);
                 video.removeEventListener('loadedmetadata', onMetadata);
                 resolve();
-              }, isIOS ? 1000 : 1500); // Reduced timeouts
+              }, isIOSDevice ? 1000 : 1500); // Reduced timeouts
               
               const onCanPlay = () => {
                 clearTimeout(timeoutId);
@@ -559,7 +551,7 @@ export const VideoCard = ({ videoUrl, brand, description, isActive, shouldPreloa
               };
               const onMetadata = () => {
                 // For iOS, metadata is enough to try playing
-                if (isIOS && video.readyState >= 1) {
+                if (isIOSDevice && video.readyState >= 1) {
                   clearTimeout(timeoutId);
                   video.removeEventListener('canplay', onCanPlay);
                   video.removeEventListener('loadeddata', onLoadedData);
@@ -583,7 +575,7 @@ export const VideoCard = ({ videoUrl, brand, description, isActive, shouldPreloa
           // Now play - iOS requires muted autoplay
           try {
             // Ensure muted before play on iOS
-            if (isIOS) {
+            if (isIOSDevice) {
               video.muted = true;
             }
             await video.play();
@@ -593,7 +585,7 @@ export const VideoCard = ({ videoUrl, brand, description, isActive, shouldPreloa
             requestAnimationFrame(async () => {
               try {
                 if (!video || !videoRef.current) return;
-                if (isIOS) {
+                if (isIOSDevice) {
                   video.muted = true;
                 }
                 await video.play();
@@ -602,14 +594,14 @@ export const VideoCard = ({ videoUrl, brand, description, isActive, shouldPreloa
                 setTimeout(async () => {
                   try {
                     if (!video || !videoRef.current) return;
-                    if (isIOS) {
+                    if (isIOSDevice) {
                       video.muted = true;
                     }
                     await video.play();
                   } catch (finalError) {
                     console.warn('Video play final retry failed (non-critical):', finalError);
                   }
-                }, isIOS ? 200 : 100);
+                }, isIOSDevice ? 200 : 100);
               }
             });
           }
@@ -721,11 +713,11 @@ export const VideoCard = ({ videoUrl, brand, description, isActive, shouldPreloa
       
       <video
         ref={videoRef}
-        src={hlsRef.current ? undefined : (videoSources.length === 0 ? (videoSrc || undefined) : undefined)}
+        src={hlsRef.current ? undefined : (videoSources.length > 0 ? undefined : (videoSrc || undefined))}
         loop
         muted={isMuted}
         playsInline
-        preload={isActive ? (isMobileDevice() ? (isActive && shouldPreload ? "auto" : "metadata") : "metadata") : "none"}
+        preload={isActive || shouldPreload ? "metadata" : "none"}
         className={`w-full h-full object-contain md:object-cover transition-opacity duration-200 ${isLoading && showLoadingSpinner ? 'opacity-0' : 'opacity-100'}`}
         webkit-playsinline="true"
         x-webkit-airplay="allow"
@@ -733,11 +725,11 @@ export const VideoCard = ({ videoUrl, brand, description, isActive, shouldPreloa
         controlsList="nodownload nofullscreen noremoteplayback"
       >
         {/* HLS streaming source for iOS (native support) */}
-        {isMobileDevice() && !hlsRef.current && isHlsSupported() && (
+        {isMobileDevice() && !hlsRef.current && isHlsSupported() && videoSrc && (
           <source src={getHlsUrl(videoUrl)} type="application/vnd.apple.mpegurl" />
         )}
         {/* Adaptive video sources for mobile devices - browser will select best option */}
-        {!hlsRef.current && videoSources.length > 0 && isMobileDevice() && videoSources.map((source, index) => (
+        {!hlsRef.current && videoSources.length > 0 && videoSources.map((source, index) => (
           <source
             key={`${source.src}-${index}`}
             src={source.src}

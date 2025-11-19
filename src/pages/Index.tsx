@@ -36,9 +36,7 @@ const Index = () => {
     
     // On mobile, be more aggressive with first 2 videos for smoother scrolling
     if (isMobile) {
-      // Preload first video immediately
-      setLoadedVideos(prev => new Set([...prev, 0]));
-      // Also preload second video for smoother scrolling
+      // Preload first two videos for smoother scrolling
       setLoadedVideos(prev => new Set([...prev, 0, 1]));
     } else {
       // Desktop: preload first video
@@ -60,9 +58,8 @@ const Index = () => {
     if (videoList.length === 0) return;
 
     const isMobile = isMobileDevice();
-    // On mobile, preload next 2 videos for smoother experience
-    // On desktop, preload next 2 videos
-    const preloadCount = isMobile ? 2 : 2;
+    // Preload next 2 videos for smoother experience
+    const preloadCount = 2;
     
     // CRITICAL FIX: Always ensure current video is marked for preload
     // This fixes the issue where videos after index 5 (Oakley) don't load on mobile
@@ -88,10 +85,6 @@ const Index = () => {
         });
       });
       
-      // Debug logging
-      if (currentVideoIndex >= 5) {
-        console.log(`[Index] MOBILE: Preloading videos starting from index ${currentVideoIndex}:`, mobilePreloadIndices);
-      }
     } else {
       videosToPreload.forEach((index) => {
         setLoadedVideos(prev => {
