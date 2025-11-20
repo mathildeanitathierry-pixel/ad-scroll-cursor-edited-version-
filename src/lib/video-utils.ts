@@ -179,16 +179,16 @@ export function getVideoSources(baseUrl: string): Array<{ src: string; type: str
   const sources: Array<{ src: string; type: string; media?: string }> = [];
 
   if (mobile) {
-    // Use 720p on mobile - good balance between quality and file size
-    // 720p files are ~5-10MB vs 1080p at ~10-20MB
-    const url720p = baseUrl.replace('_1080p', '_720p');
+    // Use 480p on mobile - smallest files (~2-5MB) for fastest loading
+    // This minimizes memory usage and network bandwidth
+    const url480p = baseUrl.replace('_1080p', '_480p');
 
     sources.push({
-      src: url720p,
+      src: url480p,
       type: 'video/mp4',
     });
 
-    // Fallback to 1080p if 720p doesn't exist
+    // Fallback to 1080p if 480p doesn't exist
     sources.push({
       src: baseUrl,
       type: 'video/mp4',
