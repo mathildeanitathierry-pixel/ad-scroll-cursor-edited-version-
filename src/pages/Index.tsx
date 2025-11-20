@@ -77,82 +77,17 @@ const Index = () => {
     return () => subscription.unsubscribe();
   }, []);
 
-  // Optimized scroll handling with requestAnimationFrame and debounce
-  useEffect(() => {
-    const container = containerRef.current;
-    if (!container || videoList.length === 0) return;
-
-    let scrollTimeout: NodeJS.Timeout;
-    let rafId: number;
-
-    const updateActiveVideo = () => {
-      const scrollTop = container.scrollTop;
-      const windowHeight = window.innerHeight;
-      const scrollRatio = scrollTop / windowHeight;
-      const newIndex = Math.max(0, Math.min(Math.round(scrollRatio), videoList.length - 1));
-
-      if (newIndex !== currentVideoIndex) {
-        setCurrentVideoIndex(newIndex);
-      }
-
-      // Load more videos when approaching the end (more aggressively)
-      if (newIndex >= videoList.length - 5 && videoList.length < 50) {
-        setVideoList(prev => [...prev, ...mockVideoAds]);
-      }
-    };
-
-    const handleScroll = () => {
-      if (scrollTimeout) {
-        clearTimeout(scrollTimeout);
-      }
-
-      if (rafId) {
-        cancelAnimationFrame(rafId);
-      }
-
-      // Use RAF for smooth updates
-      rafId = requestAnimationFrame(() => {
-        scrollTimeout = setTimeout(() => {
-          updateActiveVideo();
-        }, 100);
-      });
-    };
-
-    // Initial update
-    updateActiveVideo();
-
-    // Add scroll listener with passive for better performance
-    container.addEventListener('scroll', handleScroll, { passive: true });
-
-    return () => {
-      container.removeEventListener('scroll', handleScroll);
-      if (scrollTimeout) {
-        clearTimeout(scrollTimeout);
-      }
-      if (rafId) {
-        cancelAnimationFrame(rafId);
-      }
-    };
-  }, [videoList.length, currentVideoIndex]);
-
-  const handleWatched = useCallback(async () => {
-    setPoints(prev => prev + 1);
-
-    // Save to database if user is logged in
-    if (session?.user && videoList.length > 0) {
-      const currentVideo = videoList[currentVideoIndex];
-      await incrementUserStats(session.user.id, 1);
-      await addWatchHistory(
-        session.user.id,
-        currentVideo.id,
-        currentVideo.brand,
-        1
-      );
+  const handleWatched = useCallback(() => {
+    if (session?.user) {
+      setPoints((prev) => prev + 10);
+      toast.success("You earned 10 points!");
+    } else {
+      toast.success("Video watched! Sign in to earn points.");
     }
-  }, [session, videoList, currentVideoIndex]);
+  }, [session]);
 
   const handleSignOut = async () => {
-    const { error } = await signOut();
+    const { error } = await supabase.auth.signOut();
     if (error) {
       toast.error("Failed to sign out");
     } else {
@@ -161,87 +96,67 @@ const Index = () => {
     }
   };
 
-
-
-
-  // Track when first video is loaded to hide initial spinner
-  const handleVideoLoaded = useCallback((index: number) => {
-    // Hide initial loading as soon as first video loads (especially important for iOS)
-    if (index === 0 || isInitialLoading) {
-      setIsInitialLoading(false);
-    }
-    // We don't add to loadedVideos here anymore, as that is controlled by the sliding window
-  }, [isInitialLoading]);
-
-
   return (
-    <div className="relative w-full h-screen overflow-hidden bg-background">
+    <div className="relative w-full h-screen overflow-hidden bg-black">
       <CashCounter points={points} />
 
-      {/* Global loading spinner - only shown at the beginning */}
-      {isInitialLoading && (
-        <div className="fixed inset-0 flex items-center justify-center bg-background z-50">
-          <div className="flex flex-col items-center gap-4">
-            <div className="w-12 h-12 border-4 border-primary/30 border-t-primary rounded-full animate-spin" />
-            <p className="text-sm text-muted-foreground">Loading videos...</p>
-          </div>
-        </div>
-      )}
-
+      {/* Main Scroll Container */}
       <div
         ref={containerRef}
-        className="h-screen overflow-y-scroll snap-container"
+        className="h-screen w-full overflow-y-scroll snap-y snap-mandatory scroll-smooth"
+        style={{ scrollBehavior: "smooth" }}
       >
         {videoList.map((video, index) => {
+          // STRICT MEMORY MANAGEMENT:
+          // Only mount the current video and the immediate next one.
+          // Everything else is a placeholder.
+          // This guarantees we never exceed iOS memory limits.
+
           const isActive = index === currentVideoIndex;
-          // Preload if in loadedVideos set OR if active (always load active video)
-          const shouldPreload = loadedVideos.has(index) || isActive;
+          const isNext = index === currentVideoIndex + 1;
+          const isPrev = index === currentVideoIndex - 1;
 
-          // CRITICAL iOS FIX: Only render videos in a window around current position
-          // iOS has a hard limit (~6-8) on total <video> elements in DOM
-          const isMobile = typeof window !== 'undefined' && /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-          const renderWindow = isMobile ? 1 : 5; // Reduced from 3 to 1 on mobile (Current + 1 Prev + 1 Next = 3 total)
-          const shouldRender = Math.abs(index - currentVideoIndex) <= renderWindow;
+          // We render the component if it's active, next, or previous (for smooth scrolling back)
+          // But we prioritize keeping the DOM light.
+          const shouldMount = isActive || isNext || isPrev;
 
-          if (!shouldRender) {
-            // Render empty placeholder to maintain scroll position
+          if (!shouldMount) {
             return (
               <div
-                key={`placeholder-${video.id}-${index}`}
-                className="h-screen w-full snap-start snap-always bg-black/5"
+                key={`placeholder-${video.id}`}
+                className="h-screen w-full snap-start snap-always bg-black"
               />
             );
           }
 
           return (
-            <VideoCard
-              key={`${video.id}-${index}-${video.videoUrl}`}
-              videoUrl={video.videoUrl}
-              brand={video.brand}
-              description={video.description}
-              isActive={isActive}
-              shouldPreload={shouldPreload}
-              onWatched={handleWatched}
-              onLoaded={() => handleVideoLoaded(index)}
-              showLoadingSpinner={false}
-            />
+            <div key={video.id} className="h-screen w-full snap-start snap-always">
+              <VideoCard
+                videoUrl={video.videoUrl}
+                brand={video.brand}
+                description={video.description}
+                isActive={isActive}
+                shouldPreload={isNext} // Hint to preload if it's the next one
+                onWatched={handleWatched}
+              />
+            </div>
           );
         })}
       </div>
 
-      {/* App branding and logout */}
-      <div className="fixed top-6 left-6 z-50 animate-fade-in-up">
-        <h1 className="text-3xl font-black italic tracking-wider uppercase bg-gradient-cash bg-clip-text text-transparent">
+      {/* Header / Controls */}
+      <div className="fixed top-6 left-6 z-50 pointer-events-none">
+        <h1 className="text-3xl font-black italic tracking-wider uppercase bg-gradient-to-r from-yellow-400 to-yellow-600 bg-clip-text text-transparent drop-shadow-md">
           Reward Ad
         </h1>
       </div>
 
-      <div className="fixed top-6 right-6 z-50 animate-fade-in-up flex gap-2">
+      <div className="fixed top-6 right-6 z-50 flex gap-2">
         <Button
           variant="ghost"
           size="icon"
           onClick={() => navigate("/profile")}
-          className="rounded-full bg-card/30 backdrop-blur-sm hover:bg-card/50"
+          className="rounded-full bg-black/20 backdrop-blur-sm text-white hover:bg-black/40"
         >
           <User className="h-5 w-5" />
         </Button>
@@ -250,7 +165,7 @@ const Index = () => {
           variant="ghost"
           size="icon"
           onClick={handleSignOut}
-          className="rounded-full bg-card/30 backdrop-blur-sm hover:bg-card/50"
+          className="rounded-full bg-black/20 backdrop-blur-sm text-white hover:bg-black/40"
         >
           <LogOut className="h-5 w-5" />
         </Button>
