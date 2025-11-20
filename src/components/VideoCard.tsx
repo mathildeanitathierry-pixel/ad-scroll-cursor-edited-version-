@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useMemo } from "react";
 import { Share2, Volume2, VolumeX } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
@@ -28,18 +28,12 @@ export const VideoCard = ({
   const [isMuted, setIsMuted] = useState(true);
   const [isLoading, setIsLoading] = useState(true);
   const [hasError, setHasError] = useState(false);
-  const [videoSources, setVideoSources] = useState<Array<{ src: string; type: string }>>([]);
+  // Use useMemo to calculate sources immediately on render, avoiding an effect cycle
+  const videoSources = useMemo(() => getVideoSources(videoUrl), [videoUrl]);
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const hasAwardedPointRef = useRef(false);
   const watchTimerRef = useRef<NodeJS.Timeout>();
-
-  // Initialize video sources
-  useEffect(() => {
-    // Get adaptive sources (720p, 480p, etc.)
-    const sources = getVideoSources(videoUrl);
-    setVideoSources(sources);
-  }, [videoUrl]);
 
   // Handle video loading
   useEffect(() => {
@@ -183,21 +177,26 @@ export const VideoCard = ({
         </div>
       )}
 
-      <video
-        ref={videoRef}
-        className={`w-full h-full object-contain md:object-cover transition-opacity duration-200 ${isLoading && showLoadingSpinner ? 'opacity-0' : 'opacity-100'}`}
-        loop
-        muted={isMuted}
-        playsInline
-        webkit-playsinline="true"
-        preload={isActive ? "auto" : "metadata"}
-        onLoadedData={handleVideoLoad}
-        onError={handleError}
-      >
-        {videoSources.map((source, index) => (
-          <source key={index} src={source.src} type={source.type} />
-        ))}
-      </video>
+      {/* Video Element - Conditionally rendered to save memory on mobile */}
+      {(isActive || shouldPreload) ? (
+        <video
+          ref={videoRef}
+          className={`w-full h-full object-contain md:object-cover transition-opacity duration-200 ${isLoading && showLoadingSpinner ? 'opacity-0' : 'opacity-100'}`}
+          loop
+          muted={isMuted}
+          playsInline
+          webkit-playsinline="true"
+          preload="auto"
+          onLoadedData={handleVideoLoad}
+          onError={handleError}
+        >
+          {videoSources.map((source, index) => (
+            <source key={index} src={source.src} type={source.type} />
+          ))}
+        </video>
+      ) : (
+        <div className="w-full h-full bg-black/10" />
+      )}
 
       {/* Gradient overlay - hidden on mobile */}
       <div className="absolute inset-0 bg-gradient-overlay pointer-events-none hidden md:block" />

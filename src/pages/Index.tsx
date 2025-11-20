@@ -16,17 +16,13 @@ const Index = () => {
   const [session, setSession] = useState<Session | null>(null);
   const [points, setPoints] = useState(0);
   const [currentVideoIndex, setCurrentVideoIndex] = useState(0);
-  const [videoList, setVideoList] = useState<VideoAd[]>([]);
+  // Initialize with data directly to save a render cycle
+  const [videoList, setVideoList] = useState<VideoAd[]>(mockVideoAds);
   const [isInitialLoading, setIsInitialLoading] = useState(true);
   const [loadedVideos, setLoadedVideos] = useState<Set<number>>(new Set());
   const containerRef = useRef<HTMLDivElement>(null);
 
   const navigate = useNavigate();
-
-  // Initialize video list - use local videos only
-  useEffect(() => {
-    setVideoList(mockVideoAds);
-  }, []);
 
   // Optimized preloading strategy - more aggressive for first videos
   useEffect(() => {
@@ -34,17 +30,8 @@ const Index = () => {
 
     const isMobile = isMobileDevice();
 
-    // On mobile, be more aggressive with first 2 videos for smoother scrolling
-    if (isMobile) {
-      // Preload first two videos for smoother scrolling
-      setLoadedVideos(prev => new Set([...prev, 0, 1]));
-    } else {
-      // Desktop: preload first video
-      setLoadedVideos(prev => new Set([...prev, 0]));
-    }
-
-    // Shorter timeout for mobile
-    const timeout = isMobile ? 1000 : 2000;
+    // Shorter timeout for mobile - fallback if video loaded event doesn't fire
+    const timeout = isMobile ? 500 : 1000;
     const timer = setTimeout(() => {
       setIsInitialLoading(false);
     }, timeout);
@@ -53,52 +40,27 @@ const Index = () => {
   }, [videoList.length]);
 
   // Preload videos as user scrolls (when they become active or are about to)
-  // More conservative on mobile to save bandwidth
+  // Sliding window strategy to manage memory on mobile
   useEffect(() => {
     if (videoList.length === 0) return;
 
     const isMobile = isMobileDevice();
-    // Preload next 2 videos for smoother experience
-    const preloadCount = 2;
 
-    // CRITICAL FIX: Always ensure current video is marked for preload
-    // This fixes the issue where videos after index 5 (Oakley) don't load on mobile
-    const videosToPreload = [
-      currentVideoIndex, // Always include current video
-      ...Array.from({ length: preloadCount }, (_, i) => currentVideoIndex + i + 1),
-    ].filter(index => index >= 0 && index < videoList.length);
+    // We only keep a few videos mounted/loaded at a time to prevent memory crashes on iOS
+    // Keep 1 previous video for smooth reverse scrolling
+    const prevCount = 1;
+    // Preload next 2 videos on mobile, 3 on desktop
+    const nextCount = isMobile ? 2 : 3;
 
-    // On mobile, be more aggressive - preload current and next 3 videos
-    if (isMobile) {
-      const mobilePreloadIndices = [
-        currentVideoIndex,
-        currentVideoIndex + 1,
-      ].filter(index => index >= 0 && index < videoList.length);
+    const start = Math.max(0, currentVideoIndex - prevCount);
+    const end = Math.min(videoList.length - 1, currentVideoIndex + nextCount);
 
-      mobilePreloadIndices.forEach((index) => {
-        setLoadedVideos(prev => {
-          const newSet = new Set(prev);
-          newSet.add(index);
-          return newSet;
-        });
-      });
-
-    } else {
-      videosToPreload.forEach((index) => {
-        setLoadedVideos(prev => {
-          const newSet = new Set(prev);
-          newSet.add(index);
-          return newSet;
-        });
-      });
+    const newLoadedSet = new Set<number>();
+    for (let i = start; i <= end; i++) {
+      newLoadedSet.add(i);
     }
 
-    // Also ensure current video is ALWAYS loaded
-    setLoadedVideos(prev => {
-      const newSet = new Set(prev);
-      newSet.add(currentVideoIndex);
-      return newSet;
-    });
+    setLoadedVideos(newLoadedSet);
   }, [currentVideoIndex, videoList.length]);
 
   // Auth state management (no redirect, allow browsing without login)
@@ -209,7 +171,7 @@ const Index = () => {
     if (index === 0 || isInitialLoading) {
       setIsInitialLoading(false);
     }
-    setLoadedVideos(prev => new Set([...prev, index]));
+    // We don't add to loadedVideos here anymore, as that is controlled by the sliding window
   }, [isInitialLoading]);
 
 
