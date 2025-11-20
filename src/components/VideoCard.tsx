@@ -1,16 +1,18 @@
-import { useEffect, useRef, useState } from "react";
-import { Volume2, VolumeX, Loader2 } from "lucide-react";
+import { useState, useRef, useEffect, useMemo } from "react";
+import { Share2, Volume2, VolumeX } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
-import { getVideoSources } from "@/lib/video-utils";
+import { isMobileDevice, getVideoSources } from "@/lib/video-utils";
 
 interface VideoCardProps {
   videoUrl: string;
   brand: string;
   description: string;
   isActive: boolean;
-  shouldPreload: boolean; // kept for compatibility, but we'll rely mainly on mounting
+  shouldPreload: boolean;
   onWatched: () => void;
+  onLoaded?: () => void;
+  showLoadingSpinner?: boolean;
 }
 
 export const VideoCard = ({
@@ -18,124 +20,225 @@ export const VideoCard = ({
   brand,
   description,
   isActive,
+  shouldPreload,
   onWatched,
+  onLoaded,
+  showLoadingSpinner = true
 }: VideoCardProps) => {
-  const videoRef = useRef<HTMLVideoElement>(null);
   const [isMuted, setIsMuted] = useState(true);
   const [isLoading, setIsLoading] = useState(true);
-  const [isPlaying, setIsPlaying] = useState(false);
-  const hasAwardedPoint = useRef(false);
-  const watchTimer = useRef<NodeJS.Timeout>();
+  const [hasError, setHasError] = useState(false);
+  // Use useMemo to calculate sources immediately on render, avoiding an effect cycle
+  const videoSources = useMemo(() => getVideoSources(videoUrl), [videoUrl]);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const hasAwardedPointRef = useRef(false);
+  const watchTimerRef = useRef<NodeJS.Timeout>();
 
-  // Get optimized video sources (480p/720p for mobile)
-  const sources = getVideoSources(videoUrl);
-
-  // Handle Playback Control
+  // Handle video loading with progressive strategy
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
 
     if (isActive) {
-      // Reset state when becoming active
-      hasAwardedPoint.current = false;
+      // Active video: load fully
+      video.preload = 'auto';
+      if (video.networkState === HTMLMediaElement.NETWORK_EMPTY ||
+        video.networkState === HTMLMediaElement.NETWORK_NO_SOURCE) {
+        video.load();
+      }
+    } else if (shouldPreload) {
+      // Preload video: only load metadata (first few KB)
+      // This allows instant playback when it becomes active
+      video.preload = 'metadata';
+      if (video.networkState === HTMLMediaElement.NETWORK_EMPTY) {
+        video.load();
+      }
+    } else {
+      // Not needed: don't load anything
+      video.preload = 'none';
+    }
+  }, [isActive, shouldPreload, videoSources]);
 
-      const playPromise = video.play();
-      if (playPromise !== undefined) {
-        playPromise
-          .then(() => setIsPlaying(true))
-          .catch((error) => {
-            console.log("Autoplay prevented:", error);
-            setIsPlaying(false);
-            // If autoplay fails (low power mode/browser policy), show mute button hint
-            if (!isMuted) setIsMuted(true);
-          });
+  // Handle play/pause and cleanup
+  useEffect(() => {
+    const video = videoRef.current;
+    // Only run if video element exists
+    if (!video) return;
+
+    if (isActive) {
+      // Reset state for new view
+      hasAwardedPointRef.current = false;
+
+      const playVideo = async () => {
+        try {
+          // Ensure muted for autoplay policy
+          video.muted = isMuted;
+          video.currentTime = 0;
+          await video.play();
+        } catch (error) {
+          console.warn("Autoplay failed:", error);
+        }
+      };
+
+      if (video.readyState >= 2) {
+        playVideo();
+      } else {
+        video.oncanplay = playVideo;
       }
 
-      // Start timer for points
-      watchTimer.current = setTimeout(() => {
-        if (!hasAwardedPoint.current) {
-          hasAwardedPoint.current = true;
+      // Start watch timer
+      watchTimerRef.current = setTimeout(() => {
+        if (!hasAwardedPointRef.current) {
+          hasAwardedPointRef.current = true;
           onWatched();
         }
       }, 5000);
 
     } else {
-      // Pause immediately if not active
+      // Pause if not active
       video.pause();
-      setIsPlaying(false);
-      if (watchTimer.current) clearTimeout(watchTimer.current);
+      if (watchTimerRef.current) {
+        clearTimeout(watchTimerRef.current);
+      }
     }
 
+    // Cleanup function - CRITICAL for iOS
     return () => {
-      if (watchTimer.current) clearTimeout(watchTimer.current);
-    };
-  }, [isActive, onWatched, isMuted]);
+      if (watchTimerRef.current) {
+        clearTimeout(watchTimerRef.current);
+      }
+      video.oncanplay = null;
 
-  const toggleMute = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (videoRef.current) {
-      videoRef.current.muted = !isMuted;
-      setIsMuted(!isMuted);
+      // FORCE CLEANUP: This is required for iOS to release memory
+      // Just unmounting the component is NOT enough
+      video.pause();
+      video.removeAttribute('src');
+      video.load(); // Triggers release of media resources
+    };
+  }, [isActive, shouldPreload, onWatched, isMuted]);
+
+  const handleVideoLoad = () => {
+    setIsLoading(false);
+    onLoaded?.();
+  };
+
+  const handleError = (e: any) => {
+    // Only report error if all sources failed or if it's a critical error
+    const video = e.target as HTMLVideoElement;
+    if (video && video.error) {
+      console.error(`Failed to load video ${brand}:`, video.error);
+      // If network no source, it means all sources failed
+      if (video.networkState === HTMLMediaElement.NETWORK_NO_SOURCE) {
+        setIsLoading(false);
+        setHasError(true);
+      }
     }
   };
 
-  const handleVideoClick = () => {
-    const video = videoRef.current;
-    if (!video) return;
+  const toggleMute = () => {
+    setIsMuted(!isMuted);
+    if (videoRef.current) {
+      videoRef.current.muted = !isMuted;
+    }
+  };
 
-    if (isPlaying) {
-      video.pause();
-      setIsPlaying(false);
+  const handleShare = async () => {
+    if (navigator.share) {
+      try {
+        await navigator.share({
+          title: `Check out this ad from ${brand}`,
+          text: description,
+          url: window.location.href,
+        });
+      } catch (err) {
+        console.log("Share cancelled");
+      }
     } else {
-      video.play();
-      setIsPlaying(true);
+      navigator.clipboard.writeText(window.location.href);
+      toast.success("Link copied to clipboard!");
     }
   };
 
   return (
-    <div className="relative w-full h-[100dvh] bg-black snap-start snap-always">
-      {/* Loading Spinner */}
-      {isLoading && (
-        <div className="absolute inset-0 flex items-center justify-center z-10 bg-black/20">
-          <Loader2 className="w-10 h-10 text-white/50 animate-spin" />
+    <div ref={containerRef} className="relative w-full h-screen snap-item overflow-hidden bg-background">
+      {/* Loading skeleton */}
+      {isLoading && !hasError && showLoadingSpinner && (
+        <div className="absolute inset-0 flex items-center justify-center bg-muted/20 backdrop-blur-sm animate-fade-in">
+          <div className="flex flex-col items-center gap-4">
+            <div className="w-12 h-12 border-4 border-primary/30 border-t-primary rounded-full animate-spin" />
+            <p className="text-sm text-muted-foreground">{brand}</p>
+          </div>
         </div>
       )}
 
+      {/* Error state */}
+      {hasError && (
+        <div className="absolute inset-0 flex items-center justify-center bg-muted/20 backdrop-blur-sm">
+          <div className="flex flex-col items-center gap-4 p-6">
+            <p className="text-sm text-destructive">Failed to load video</p>
+            <Button
+              onClick={() => {
+                setHasError(false);
+                setIsLoading(true);
+                if (videoRef.current) {
+                  videoRef.current.load();
+                }
+              }}
+              variant="outline"
+              size="sm"
+            >
+              Retry
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* Video Element - Always rendered, browser handles memory via preload */}
       <video
         ref={videoRef}
-        className="w-full h-full object-cover"
+        className={`w-full h-full object-contain md:object-cover transition-opacity duration-200 ${isLoading && showLoadingSpinner ? 'opacity-0' : 'opacity-100'}`}
         loop
         muted={isMuted}
         playsInline
         webkit-playsinline="true"
-        preload="auto"
-        onClick={handleVideoClick}
-        onLoadedData={() => setIsLoading(false)}
+        onLoadedData={handleVideoLoad}
+        onError={handleError}
       >
-        {sources.map((source, index) => (
+        {videoSources.map((source, index) => (
           <source key={index} src={source.src} type={source.type} />
         ))}
       </video>
 
-      {/* Overlay Content */}
-      <div className="absolute inset-0 pointer-events-none flex flex-col justify-end p-6 bg-gradient-to-t from-black/80 via-transparent to-transparent">
-        <div className="mb-16 space-y-2 animate-fade-in">
-          <h2 className="text-2xl font-bold text-white drop-shadow-md">{brand}</h2>
-          <p className="text-white/90 text-sm md:text-base line-clamp-2 drop-shadow-sm">
-            {description}
-          </p>
+      {/* Gradient overlay - hidden on mobile */}
+      <div className="absolute inset-0 bg-gradient-overlay pointer-events-none hidden md:block" />
+
+      {/* Content overlay */}
+      <div className="absolute bottom-0 left-0 right-0 p-4 md:p-6 pb-6 md:pb-8 animate-fade-in-up pointer-events-none">
+        <div className="pointer-events-auto">
+          <h3 className="text-xl md:text-2xl font-bold mb-1 md:mb-2 text-white drop-shadow-md">{brand}</h3>
+          <p className="text-xs md:text-sm text-white/90 mb-2 md:mb-4 line-clamp-2 hidden md:block drop-shadow-md">{description}</p>
         </div>
       </div>
 
-      {/* Controls */}
-      <div className="absolute right-4 bottom-24 flex flex-col gap-4 z-20">
+      {/* Right side controls */}
+      <div className="absolute right-3 md:right-4 bottom-20 md:bottom-24 flex flex-col gap-3 md:gap-4">
         <Button
           variant="ghost"
           size="icon"
-          className="rounded-full bg-black/40 backdrop-blur-sm text-white hover:bg-black/60"
+          className="rounded-full bg-black/20 backdrop-blur-sm hover:bg-black/40 text-white h-10 w-10 md:h-12 md:w-12"
           onClick={toggleMute}
         >
-          {isMuted ? <VolumeX className="h-6 w-6" /> : <Volume2 className="h-6 w-6" />}
+          {isMuted ? <VolumeX className="h-5 w-5 md:h-6 md:w-6" /> : <Volume2 className="h-5 w-5 md:h-6 md:w-6" />}
+        </Button>
+
+        <Button
+          variant="ghost"
+          size="icon"
+          className="rounded-full bg-black/20 backdrop-blur-sm hover:bg-black/40 text-white h-10 w-10 md:h-12 md:w-12"
+          onClick={handleShare}
+        >
+          <Share2 className="h-5 w-5 md:h-6 md:w-6" />
         </Button>
       </div>
     </div>
