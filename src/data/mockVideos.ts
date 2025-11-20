@@ -38,12 +38,7 @@ export const mockVideoAds: VideoAd[] = [
     brand: "Luma AI",
     description: "Introducing Modify Video - Transform your videos with AI. Create, edit, and enhance with ease.",
   },
-  {
-    id: "6",
-    videoUrl: "/videos/YTDown.com_YouTube_Oakley-Meta-Vanguard-Athletic-Intelligen_Media_AsQ_8_oQ188_001_1080p.mp4",
-    brand: "Oakley",
-    description: "Meta Vanguard - Athletic Intelligence. Performance meets innovation in every frame.",
-  },
+
   {
     id: "7",
     videoUrl: "/videos/YTDown.com_YouTube_Saucony-Run-As-One_Media_wF7aMx6HxPM_001_1080p.mp4",
