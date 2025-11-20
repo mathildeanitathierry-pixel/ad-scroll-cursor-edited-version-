@@ -46,11 +46,14 @@ const Index = () => {
 
     const isMobile = isMobileDevice();
 
-    // We only keep a few videos mounted/loaded at a time to prevent memory crashes on iOS
-    // Keep 1 previous video for smooth reverse scrolling
-    const prevCount = 1;
-    // Preload next 2 videos on mobile, 3 on desktop
-    const nextCount = isMobile ? 2 : 3;
+    // CRITICAL IOS FIX: Drastically reduce the number of active videos
+    // iOS Safari has a strict memory limit for media buffers (~50MB-100MB)
+    // We must unmount videos immediately when they are not visible
+
+    // On mobile: Keep 0 previous (unmount immediately), 1 next (preload only one)
+    // This ensures max 2 videos are active at any time (Current + Next)
+    const prevCount = isMobile ? 0 : 1;
+    const nextCount = isMobile ? 1 : 3;
 
     const start = Math.max(0, currentVideoIndex - prevCount);
     const end = Math.min(videoList.length - 1, currentVideoIndex + nextCount);

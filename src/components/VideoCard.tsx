@@ -50,9 +50,10 @@ export const VideoCard = ({
     }
   }, [isActive, shouldPreload, videoSources]);
 
-  // Handle play/pause
+  // Handle play/pause and cleanup
   useEffect(() => {
     const video = videoRef.current;
+    // Only run if video element exists
     if (!video) return;
 
     if (isActive) {
@@ -67,7 +68,6 @@ export const VideoCard = ({
           await video.play();
         } catch (error) {
           console.warn("Autoplay failed:", error);
-          // Interaction might be required
         }
       };
 
@@ -86,20 +86,29 @@ export const VideoCard = ({
       }, 5000);
 
     } else {
-      // Pause and cleanup
+      // Pause if not active
       video.pause();
       if (watchTimerRef.current) {
         clearTimeout(watchTimerRef.current);
       }
     }
 
+    // Cleanup function - CRITICAL for iOS
     return () => {
       if (watchTimerRef.current) {
         clearTimeout(watchTimerRef.current);
       }
       video.oncanplay = null;
+
+      // If the component is unmounting or video is being removed from DOM
+      // We must explicitly unload the video to free memory
+      if (!isActive && !shouldPreload) {
+        video.pause();
+        video.removeAttribute('src');
+        video.load();
+      }
     };
-  }, [isActive, onWatched, isMuted]);
+  }, [isActive, shouldPreload, onWatched, isMuted]);
 
   const handleVideoLoad = () => {
     setIsLoading(false);
