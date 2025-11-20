@@ -20,7 +20,7 @@ const Index = () => {
   const [isInitialLoading, setIsInitialLoading] = useState(true);
   const [loadedVideos, setLoadedVideos] = useState<Set<number>>(new Set());
   const containerRef = useRef<HTMLDivElement>(null);
-  const touchStartY = useRef(0);
+
   const navigate = useNavigate();
 
   // Initialize video list - use local videos only
@@ -33,7 +33,7 @@ const Index = () => {
     if (videoList.length === 0) return;
 
     const isMobile = isMobileDevice();
-    
+
     // On mobile, be more aggressive with first 2 videos for smoother scrolling
     if (isMobile) {
       // Preload first two videos for smoother scrolling
@@ -60,7 +60,7 @@ const Index = () => {
     const isMobile = isMobileDevice();
     // Preload next 2 videos for smoother experience
     const preloadCount = 2;
-    
+
     // CRITICAL FIX: Always ensure current video is marked for preload
     // This fixes the issue where videos after index 5 (Oakley) don't load on mobile
     const videosToPreload = [
@@ -73,10 +73,8 @@ const Index = () => {
       const mobilePreloadIndices = [
         currentVideoIndex,
         currentVideoIndex + 1,
-        currentVideoIndex + 2,
-        currentVideoIndex + 3,
       ].filter(index => index >= 0 && index < videoList.length);
-      
+
       mobilePreloadIndices.forEach((index) => {
         setLoadedVideos(prev => {
           const newSet = new Set(prev);
@@ -84,7 +82,7 @@ const Index = () => {
           return newSet;
         });
       });
-      
+
     } else {
       videosToPreload.forEach((index) => {
         setLoadedVideos(prev => {
@@ -94,7 +92,7 @@ const Index = () => {
         });
       });
     }
-    
+
     // Also ensure current video is ALWAYS loaded
     setLoadedVideos(prev => {
       const newSet = new Set(prev);
@@ -131,7 +129,7 @@ const Index = () => {
       const windowHeight = window.innerHeight;
       const scrollRatio = scrollTop / windowHeight;
       const newIndex = Math.max(0, Math.min(Math.round(scrollRatio), videoList.length - 1));
-      
+
       if (newIndex !== currentVideoIndex) {
         setCurrentVideoIndex(newIndex);
       }
@@ -150,7 +148,7 @@ const Index = () => {
       if (rafId) {
         cancelAnimationFrame(rafId);
       }
-      
+
       // Use RAF for smooth updates
       rafId = requestAnimationFrame(() => {
         scrollTimeout = setTimeout(() => {
@@ -161,10 +159,10 @@ const Index = () => {
 
     // Initial update
     updateActiveVideo();
-    
+
     // Add scroll listener with passive for better performance
     container.addEventListener('scroll', handleScroll, { passive: true });
-    
+
     return () => {
       container.removeEventListener('scroll', handleScroll);
       if (scrollTimeout) {
@@ -178,7 +176,7 @@ const Index = () => {
 
   const handleWatched = useCallback(async () => {
     setPoints(prev => prev + 1);
-    
+
     // Save to database if user is logged in
     if (session?.user && videoList.length > 0) {
       const currentVideo = videoList[currentVideoIndex];
@@ -203,30 +201,7 @@ const Index = () => {
   };
 
 
-  const handleTouchStart = (e: React.TouchEvent) => {
-    touchStartY.current = e.touches[0].clientY;
-  };
 
-  const handleTouchEnd = (e: React.TouchEvent) => {
-    const touchEndY = e.changedTouches[0].clientY;
-    const diff = touchStartY.current - touchEndY;
-
-    if (Math.abs(diff) > 50) {
-      if (diff > 0 && currentVideoIndex < videoList.length - 1) {
-        // Swipe up - next video
-        containerRef.current?.scrollTo({
-          top: (currentVideoIndex + 1) * window.innerHeight,
-          behavior: 'smooth'
-        });
-      } else if (diff < 0 && currentVideoIndex > 0) {
-        // Swipe down - previous video
-        containerRef.current?.scrollTo({
-          top: (currentVideoIndex - 1) * window.innerHeight,
-          behavior: 'smooth'
-        });
-      }
-    }
-  };
 
   // Track when first video is loaded to hide initial spinner
   const handleVideoLoaded = useCallback((index: number) => {
@@ -241,7 +216,7 @@ const Index = () => {
   return (
     <div className="relative w-full h-screen overflow-hidden bg-background">
       <CashCounter points={points} />
-      
+
       {/* Global loading spinner - only shown at the beginning */}
       {isInitialLoading && (
         <div className="fixed inset-0 flex items-center justify-center bg-background z-50">
@@ -251,18 +226,16 @@ const Index = () => {
           </div>
         </div>
       )}
-      
-      <div 
+
+      <div
         ref={containerRef}
         className="h-screen overflow-y-scroll snap-container"
-        onTouchStart={handleTouchStart}
-        onTouchEnd={handleTouchEnd}
       >
-      {videoList.map((video, index) => {
+        {videoList.map((video, index) => {
           const isActive = index === currentVideoIndex;
           // Preload if in loadedVideos set OR if active (always load active video)
           const shouldPreload = loadedVideos.has(index) || isActive;
-          
+
           return (
             <VideoCard
               key={`${video.id}-${index}-${video.videoUrl}`}
@@ -295,7 +268,7 @@ const Index = () => {
         >
           <User className="h-5 w-5" />
         </Button>
-        
+
         <Button
           variant="ghost"
           size="icon"

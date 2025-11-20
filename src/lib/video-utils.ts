@@ -7,16 +7,16 @@
  */
 export function isMobileDevice(): boolean {
   if (typeof window === 'undefined') return false;
-  
+
   const userAgent = navigator.userAgent || navigator.vendor || (window as any).opera;
-  
+
   // Check for mobile devices
   const isMobile = /iPhone|iPad|iPod|Android|webOS|BlackBerry|IEMobile|Opera Mini/i.test(userAgent);
-  
+
   // Also check for touch support and screen size
   const hasTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
   const isSmallScreen = window.innerWidth <= 768;
-  
+
   return isMobile || (hasTouch && isSmallScreen);
 }
 
@@ -25,9 +25,9 @@ export function isMobileDevice(): boolean {
  */
 export function isIOS(): boolean {
   if (typeof window === 'undefined') return false;
-  
-  return /iPad|iPhone|iPod/.test(navigator.userAgent) || 
-         (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+
+  return /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+    (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 }
 
 /**
@@ -35,7 +35,7 @@ export function isIOS(): boolean {
  */
 export function isAndroid(): boolean {
   if (typeof window === 'undefined') return false;
-  
+
   return /Android/i.test(navigator.userAgent);
 }
 
@@ -47,31 +47,31 @@ export function getNetworkQuality(): 'slow' | 'fast' {
   if (typeof navigator === 'undefined' || !('connection' in navigator)) {
     return 'fast';
   }
-  
-  const connection = (navigator as any).connection || 
-                    (navigator as any).mozConnection || 
-                    (navigator as any).webkitConnection;
-  
+
+  const connection = (navigator as any).connection ||
+    (navigator as any).mozConnection ||
+    (navigator as any).webkitConnection;
+
   if (!connection) return 'fast';
-  
+
   // Check effective type (4G, 3G, 2G, slow-2g)
   const effectiveType = connection.effectiveType;
   if (effectiveType === 'slow-2g' || effectiveType === '2g') {
     return 'slow';
   }
-  
+
   // Check if on cellular connection
   const isCellular = connection.type === 'cellular';
   if (isCellular && (effectiveType === '3g' || connection.downlink < 1.5)) {
     return 'slow';
   }
-  
+
   // Check downlink speed (Mbps)
   const downlink = connection.downlink;
   if (downlink && downlink < 1.5) {
     return 'slow';
   }
-  
+
   return 'fast';
 }
 
@@ -83,23 +83,23 @@ export function getMobileVideoUrl(originalUrl: string): string {
   if (!isMobileDevice()) {
     return originalUrl;
   }
-  
+
   // Try to find a lower resolution version
   // Pattern: replace _1080p with _720p or _480p
   const url720p = originalUrl.replace('_1080p', '_720p');
   const url480p = originalUrl.replace('_1080p', '_480p');
-  
+
   // For now, we'll use the original URL but this can be extended
   // to check if lower resolution files exist
   // In production, you'd want to verify file existence or use a CDN
-  
+
   // If network is slow, prefer even lower quality
   const networkQuality = getNetworkQuality();
   if (networkQuality === 'slow') {
     // Could return url480p if files exist
     return originalUrl; // Fallback to original for now
   }
-  
+
   // For mobile, prefer 720p if available
   return originalUrl; // Will be updated when lower res files are available
 }
@@ -111,11 +111,11 @@ export function getMobileVideoUrl(originalUrl: string): string {
 export function getOptimalVideoUrl(originalUrl: string): string {
   const mobile = isMobileDevice();
   const networkQuality = getNetworkQuality();
-  
+
   if (!mobile) {
     return originalUrl; // Desktop gets full quality
   }
-  
+
   // Mobile device - prefer lower quality but fallback to original
   // Note: Lower resolution files may not exist yet, so we'll use original
   // When 720p/480p files are added, they'll be automatically used
@@ -124,7 +124,7 @@ export function getOptimalVideoUrl(originalUrl: string): string {
     // For now, return original as fallback
     return originalUrl;
   }
-  
+
   // Fast mobile network - prefer 720p if available
   // For now, return original as fallback
   return originalUrl;
@@ -140,10 +140,10 @@ export function getHlsUrl(mp4Url: string): string {
   // Try subdirectory format first (hls/video_name/playlist.m3u8)
   const baseName = mp4Url.replace('.mp4', '').replace('/videos/', '');
   const subdirUrl = `/videos/hls/${baseName}/playlist.m3u8`;
-  
+
   // Fallback to same directory format (video.m3u8)
   const sameDirUrl = mp4Url.replace('.mp4', '.m3u8');
-  
+
   // Return subdirectory format (more common for HLS)
   // Browser will automatically fall back if file doesn't exist
   return subdirUrl;
@@ -154,17 +154,17 @@ export function getHlsUrl(mp4Url: string): string {
  */
 export function isHlsSupported(): boolean {
   if (typeof window === 'undefined') return false;
-  
+
   const video = document.createElement('video');
-  
+
   // iOS Safari natively supports HLS
   if (isIOS()) {
     return video.canPlayType('application/vnd.apple.mpegurl') !== '';
   }
-  
+
   // For other browsers, we'll use HLS.js
-  return typeof (window as any).Hls !== 'undefined' || 
-         typeof (window as any).hlsjs !== 'undefined';
+  return typeof (window as any).Hls !== 'undefined' ||
+    typeof (window as any).hlsjs !== 'undefined';
 }
 
 /**
@@ -177,44 +177,43 @@ export function getVideoSources(baseUrl: string): Array<{ src: string; type: str
   const mobile = isMobileDevice();
   const networkQuality = getNetworkQuality();
   const hlsSupported = isHlsSupported();
-  
+
   const sources: Array<{ src: string; type: string; media?: string }> = [];
-  
+
   // Prefer HLS streaming on mobile for adaptive bitrate
   if (mobile && hlsSupported) {
     const hlsUrl = getHlsUrl(baseUrl);
-    sources.push({
-      src: hlsUrl,
-      type: 'application/vnd.apple.mpegurl', // HLS MIME type
-    });
+    // Only add HLS if we know it exists (for now we don't have HLS generated yet)
+    // sources.push({
+    //   src: hlsUrl,
+    //   type: 'application/vnd.apple.mpegurl', // HLS MIME type
+    // });
   }
-  
+
   if (mobile) {
     // For mobile, prefer lower resolutions for faster loading
-    // Browser will automatically fall back if file doesn't exist
-    
+
     if (networkQuality === 'slow') {
-      // Slow network: try 480p first (if available)
+      // Slow network: try 480p first
       sources.push({
         src: baseUrl.replace('_1080p', '_480p'),
         type: 'video/mp4',
       });
     }
-    
-    // Add 720p as preferred option for mobile (if available)
+
+    // Add 720p as preferred option for mobile
     sources.push({
       src: baseUrl.replace('_1080p', '_720p'),
       type: 'video/mp4',
     });
   }
-  
+
   // Always include original 1080p as final fallback
-  // This ensures videos always work even if lower res versions don't exist
   sources.push({
     src: baseUrl,
     type: 'video/mp4',
   });
-  
+
   return sources;
 }
 
