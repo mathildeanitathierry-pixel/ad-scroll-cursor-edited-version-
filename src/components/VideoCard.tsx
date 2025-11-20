@@ -110,13 +110,11 @@ export const VideoCard = ({
       }
       video.oncanplay = null;
 
-      // If the component is unmounting or video is being removed from DOM
-      // We must explicitly unload the video to free memory
-      if (!isActive && !shouldPreload) {
-        video.pause();
-        video.removeAttribute('src');
-        video.load();
-      }
+      // FORCE CLEANUP: This is required for iOS to release memory
+      // Just unmounting the component is NOT enough
+      video.pause();
+      video.removeAttribute('src');
+      video.load(); // Triggers release of media resources
     };
   }, [isActive, shouldPreload, onWatched, isMuted]);
 
