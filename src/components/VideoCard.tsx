@@ -196,21 +196,25 @@ export const VideoCard = ({
         </div>
       )}
 
-      {/* Video Element - Always rendered but controlled via preload */}
-      <video
-        ref={videoRef}
-        className={`w-full h-full object-contain md:object-cover transition-opacity duration-200 ${isLoading && showLoadingSpinner ? 'opacity-0' : 'opacity-100'}`}
-        loop
-        muted={isMuted}
-        playsInline
-        webkit-playsinline="true"
-        onLoadedData={handleVideoLoad}
-        onError={handleError}
-      >
-        {videoSources.map((source, index) => (
-          <source key={index} src={source.src} type={source.type} />
-        ))}
-      </video>
+      {/* Video Element - Only rendered when in sliding window to save memory */}
+      {(isActive || shouldPreload) ? (
+        <video
+          ref={videoRef}
+          className={`w-full h-full object-contain md:object-cover transition-opacity duration-200 ${isLoading && showLoadingSpinner ? 'opacity-0' : 'opacity-100'}`}
+          loop
+          muted={isMuted}
+          playsInline
+          webkit-playsinline="true"
+          onLoadedData={handleVideoLoad}
+          onError={handleError}
+        >
+          {videoSources.map((source, index) => (
+            <source key={index} src={source.src} type={source.type} />
+          ))}
+        </video>
+      ) : (
+        <div className="w-full h-full bg-black/5" />
+      )}
 
       {/* Gradient overlay - hidden on mobile */}
       <div className="absolute inset-0 bg-gradient-overlay pointer-events-none hidden md:block" />
