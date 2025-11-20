@@ -97,13 +97,13 @@ const Index = () => {
   };
 
   return (
-    <div className="relative w-full h-screen overflow-hidden bg-black">
+    <div className="relative w-full h-[100dvh] overflow-hidden bg-black">
       <CashCounter points={points} />
 
       {/* Main Scroll Container */}
       <div
         ref={containerRef}
-        className="h-screen w-full overflow-y-scroll snap-y snap-mandatory scroll-smooth"
+        className="h-[100dvh] w-full overflow-y-scroll snap-y snap-mandatory scroll-smooth"
         style={{ scrollBehavior: "smooth" }}
       >
         {videoList.map((video, index) => {
@@ -124,13 +124,13 @@ const Index = () => {
             return (
               <div
                 key={`placeholder-${video.id}`}
-                className="h-screen w-full snap-start snap-always bg-black"
+                className="h-[100dvh] w-full snap-start snap-always bg-black"
               />
             );
           }
 
           return (
-            <div key={video.id} className="h-screen w-full snap-start snap-always">
+            <div key={video.id} className="h-[100dvh] w-full snap-start snap-always">
               <VideoCard
                 videoUrl={video.videoUrl}
                 brand={video.brand}
