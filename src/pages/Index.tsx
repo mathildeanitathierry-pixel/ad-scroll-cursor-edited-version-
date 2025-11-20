@@ -197,6 +197,22 @@ const Index = () => {
           // Preload if in loadedVideos set OR if active (always load active video)
           const shouldPreload = loadedVideos.has(index) || isActive;
 
+          // CRITICAL iOS FIX: Only render videos in a window around current position
+          // iOS has a hard limit (~6-8) on total <video> elements in DOM
+          const isMobile = typeof window !== 'undefined' && /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+          const renderWindow = isMobile ? 3 : 5; // Smaller window on mobile
+          const shouldRender = Math.abs(index - currentVideoIndex) <= renderWindow;
+
+          if (!shouldRender) {
+            // Render empty placeholder to maintain scroll position
+            return (
+              <div
+                key={`placeholder-${video.id}-${index}`}
+                className="h-screen w-full snap-start snap-always bg-black/5"
+              />
+            );
+          }
+
           return (
             <VideoCard
               key={`${video.id}-${index}-${video.videoUrl}`}
