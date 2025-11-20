@@ -49,7 +49,7 @@ const Index = () => {
     // Balanced approach for iOS: keep a reasonable window
     // This prevents memory crashes while ensuring smooth scrolling
     const prevCount = isMobile ? 1 : 1;
-    const nextCount = isMobile ? 2 : 3;
+    const nextCount = isMobile ? 1 : 3; // Reduced to 1 on mobile to save memory
 
     const start = Math.max(0, currentVideoIndex - prevCount);
     const end = Math.min(videoList.length - 1, currentVideoIndex + nextCount);
@@ -200,7 +200,7 @@ const Index = () => {
           // CRITICAL iOS FIX: Only render videos in a window around current position
           // iOS has a hard limit (~6-8) on total <video> elements in DOM
           const isMobile = typeof window !== 'undefined' && /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-          const renderWindow = isMobile ? 3 : 5; // Smaller window on mobile
+          const renderWindow = isMobile ? 1 : 5; // Reduced from 3 to 1 on mobile (Current + 1 Prev + 1 Next = 3 total)
           const shouldRender = Math.abs(index - currentVideoIndex) <= renderWindow;
 
           if (!shouldRender) {
