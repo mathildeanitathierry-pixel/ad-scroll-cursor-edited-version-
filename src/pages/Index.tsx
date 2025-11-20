@@ -46,14 +46,10 @@ const Index = () => {
 
     const isMobile = isMobileDevice();
 
-    // CRITICAL IOS FIX: Drastically reduce the number of active videos
-    // iOS Safari has a strict memory limit for media buffers (~50MB-100MB)
-    // We must unmount videos immediately when they are not visible
-
-    // On mobile: Keep 0 previous (unmount immediately), 1 next (preload only one)
-    // This ensures max 2 videos are active at any time (Current + Next)
-    const prevCount = isMobile ? 0 : 1;
-    const nextCount = isMobile ? 1 : 3;
+    // Balanced approach for iOS: keep a reasonable window
+    // This prevents memory crashes while ensuring smooth scrolling
+    const prevCount = isMobile ? 1 : 1;
+    const nextCount = isMobile ? 2 : 3;
 
     const start = Math.max(0, currentVideoIndex - prevCount);
     const end = Math.min(videoList.length - 1, currentVideoIndex + nextCount);

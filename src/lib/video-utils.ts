@@ -175,23 +175,20 @@ export function isHlsSupported(): boolean {
  */
 export function getVideoSources(baseUrl: string): Array<{ src: string; type: string; media?: string }> {
   const mobile = isMobileDevice();
-  const networkQuality = getNetworkQuality();
 
   const sources: Array<{ src: string; type: string; media?: string }> = [];
 
   if (mobile) {
-    // CRITICAL iOS FIX: Only use 480p on mobile to minimize memory usage
-    // iOS Safari has very strict memory limits (~50-100MB for all video buffers)
-    // Using only one quality level prevents memory fragmentation
-    const url480p = baseUrl.replace('_1080p', '_480p');
+    // Use 720p on mobile - good balance between quality and file size
+    // 720p files are ~5-10MB vs 1080p at ~10-20MB
+    const url720p = baseUrl.replace('_1080p', '_720p');
 
     sources.push({
-      src: url480p,
+      src: url720p,
       type: 'video/mp4',
     });
 
-    // Only add 1080p as fallback if 480p doesn't exist
-    // This ensures we always have a video to play
+    // Fallback to 1080p if 720p doesn't exist
     sources.push({
       src: baseUrl,
       type: 'video/mp4',
