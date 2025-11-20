@@ -176,43 +176,33 @@ export function isHlsSupported(): boolean {
 export function getVideoSources(baseUrl: string): Array<{ src: string; type: string; media?: string }> {
   const mobile = isMobileDevice();
   const networkQuality = getNetworkQuality();
-  const hlsSupported = isHlsSupported();
 
   const sources: Array<{ src: string; type: string; media?: string }> = [];
 
-  // Prefer HLS streaming on mobile for adaptive bitrate
-  if (mobile && hlsSupported) {
-    const hlsUrl = getHlsUrl(baseUrl);
-    // Only add HLS if we know it exists (for now we don't have HLS generated yet)
-    // sources.push({
-    //   src: hlsUrl,
-    //   type: 'application/vnd.apple.mpegurl', // HLS MIME type
-    // });
-  }
-
   if (mobile) {
-    // For mobile, prefer lower resolutions for faster loading
+    // CRITICAL iOS FIX: Only use 480p on mobile to minimize memory usage
+    // iOS Safari has very strict memory limits (~50-100MB for all video buffers)
+    // Using only one quality level prevents memory fragmentation
+    const url480p = baseUrl.replace('_1080p', '_480p');
 
-    if (networkQuality === 'slow') {
-      // Slow network: try 480p first
-      sources.push({
-        src: baseUrl.replace('_1080p', '_480p'),
-        type: 'video/mp4',
-      });
-    }
-
-    // Add 720p as preferred option for mobile
     sources.push({
-      src: baseUrl.replace('_1080p', '_720p'),
+      src: url480p,
+      type: 'video/mp4',
+    });
+
+    // Only add 1080p as fallback if 480p doesn't exist
+    // This ensures we always have a video to play
+    sources.push({
+      src: baseUrl,
+      type: 'video/mp4',
+    });
+  } else {
+    // Desktop: use full quality
+    sources.push({
+      src: baseUrl,
       type: 'video/mp4',
     });
   }
-
-  // Always include original 1080p as final fallback
-  sources.push({
-    src: baseUrl,
-    type: 'video/mp4',
-  });
 
   return sources;
 }

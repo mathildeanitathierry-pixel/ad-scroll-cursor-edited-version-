@@ -35,18 +35,28 @@ export const VideoCard = ({
   const hasAwardedPointRef = useRef(false);
   const watchTimerRef = useRef<NodeJS.Timeout>();
 
-  // Handle video loading
+  // Handle video loading - CRITICAL for iOS
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
 
     // Only load if active or should preload
     if (isActive || shouldPreload) {
-      // If we have sources, the browser handles selection via <source> tags
-      // But we need to call load() to trigger it if it hasn't started
-      if (video.networkState === HTMLMediaElement.NETWORK_EMPTY || video.networkState === HTMLMediaElement.NETWORK_NO_SOURCE) {
+      // Force reload if network state is empty
+      if (video.networkState === HTMLMediaElement.NETWORK_EMPTY ||
+        video.networkState === HTMLMediaElement.NETWORK_NO_SOURCE) {
         video.load();
       }
+    } else {
+      // CRITICAL iOS FIX: Aggressively unload when not needed
+      // This frees up the video decoder and memory buffer
+      video.pause();
+      video.removeAttribute('src');
+      // Remove all source children
+      while (video.firstChild) {
+        video.removeChild(video.firstChild);
+      }
+      video.load(); // This triggers the browser to release resources
     }
   }, [isActive, shouldPreload, videoSources]);
 
@@ -195,7 +205,7 @@ export const VideoCard = ({
           muted={isMuted}
           playsInline
           webkit-playsinline="true"
-          preload="auto"
+          preload={isActive ? "auto" : "none"}
           onLoadedData={handleVideoLoad}
           onError={handleError}
         >
